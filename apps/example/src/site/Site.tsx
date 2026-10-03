@@ -2,20 +2,12 @@ import { useId, useState, type ReactNode } from 'react';
 import { parse, render } from 'sugar-high/core';
 import * as typescript from 'sugar-high/lang/typescript';
 import * as shell from 'sugar-high/lang/shell';
-import { Walkthrough } from './Walkthrough';
 import './site.css';
 
 /** Syntax highlighting: sugar-high's core and just the two languages used here */
 const LANGUAGES = { typescript: { ...typescript, typescript: true }, shell } as const;
 
-/**
- * The site's pages — the front page, for communities, at `/` (in `Home.tsx`),
- * for developers at `/developers`, and how the protocol works at `/protocol`
- * (in `Protocol.tsx`), and the Chrome extension at `/extension` (in
- * `Extension.tsx`) — living in the example app for now, so they share its
- * fonts, colours and deploy. The app itself is at `/app`.
- */
-
+/** The site's pages (`/`, `/developers`, `/protocol`, `/extension`), sharing the example app's fonts and deploy */
 export const GITHUB = 'https://github.com/leifriksheim/weave';
 export const SPEC = `${GITHUB}/tree/main/spec`;
 /** Links off the site open in a tab of their own */
@@ -593,14 +585,6 @@ export function Developers() {
       </section>
 
       <Band
-        kicker="How it works"
-        title="From a password to a shared space."
-        intro={<p>The whole idea in six steps. Nothing along the way puts a server in charge.</p>}
-      >
-        <Walkthrough />
-      </Band>
-
-      <Band
         kicker="Rules without a referee"
         title="Everyone follows the rules. Nobody is in charge."
         intro={
@@ -681,7 +665,7 @@ export function Developers() {
               },
               {
                 title: 'Sign-in you don’t write',
-                body: 'One element or one hook. Accounts, passkeys and pairing a phone are built in. Your app gets a limited, expiring pass to someone’s account, never their keys.',
+                body: 'One element or one hook. Accounts, passkeys and pairing a phone are built in. The person’s account home asks them first, then gives your app a signed, expiring pass: which spaces, and for how long. Your app never sees their password or keys, and they can take the pass back.',
               },
               {
                 title: 'Ready for agents',
@@ -754,7 +738,7 @@ export function Developers() {
               },
               {
                 title: 'One account, every app',
-                body: 'People make an account once, kept in their password manager or a passkey, and use it in every Weave app. No company can shut it off.',
+                body: 'People make an account once, on their own device, with a recovery code to keep safe, and sign in with a passkey or a password. There’s no sign-up form, and they use it in every Weave app. No company keeps a copy or can shut it off.',
               },
               {
                 title: 'Everything is signed',
@@ -796,7 +780,7 @@ export function Developers() {
             parts={[
               {
                 title: 'Live, device to device',
-                body: 'Changes go straight between devices and show up in real time.',
+                body: 'Changes go straight between devices and show up in real time. A new phone joins by scanning a code, or with the recovery code.',
               },
               {
                 title: 'Relays you choose',
@@ -808,7 +792,7 @@ export function Developers() {
               },
               {
                 title: 'Online when devices sleep',
-                body: 'An always-on node keeps data available while your users’ devices are off. It can be one that holds no keys, passing data along without reading it.',
+                body: 'An always-on node, the user’s own or a host’s, keeps data available while their devices are off. It can be one that holds no keys, passing data along without reading it.',
               },
               {
                 title: 'Nothing bad gets in',

@@ -63,7 +63,9 @@ collection, with the reason. A Zod `.regex()` or `.email()` fails for that
 reason. Validators that can describe themselves as JSON Schema work directly:
 Zod 4.2+, ArkType 2.1.28+, Valibot with `toStandardJsonSchema`. They are
 converted with target `draft-2020-12` before storing, a `$schema` member is
-dropped, and the result is checked like any other.
+dropped, and the result is checked like any other. For checks that stay
+local, `createSchemaEngine().registerCollection({ name, schema })` takes any
+[Standard Schema v1](https://standardschema.dev/) validator directly.
 
 ### Validating
 
@@ -330,7 +332,9 @@ community (`poll`, `vote`, `proposal`, `decision`, `goal`…). The full list is 
 They are ordinary collections. Using the same one is how two apps agree: a
 poll asked in one can be voted on in another. For shapes of your own, the
 `fragments` export builds times, money, places and files the same way the
-library does.
+library does, and `fragments.define(definition)` gives records a type worked
+out from the schema, as every library definition's is (`Task` is
+`BodyOf<typeof task>`).
 
 Hand-made order (cards on a board) uses a `position` string.
 `positionBetween(before, after)` makes one that sorts between two others, so

@@ -1,20 +1,19 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { DEFINE, MANAGE, describeHost, roleHolds } from '@weaveprotocol/core';
-import type { HostDescription } from '@weaveprotocol/core';
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { DEFINE, MANAGE, roleHolds } from '@weaveprotocol/core';
 import { useAccess, useCollections, useNode } from '@weaveprotocol/core/react';
 import { activity, profile } from '@weaveprotocol/core/schemas';
-import { DEFAULT_HOST } from './relay';
 import { Modal } from './Modal';
 import { Benefit, FeatureIcon, Glyph, StatusPill } from './Feature';
 import {
   KeepOnline,
   KeepOnlineDialog,
-  darkSmall,
   needsFunding,
   onlineHost,
   standing,
   useSpaceHosts,
 } from './SpaceHosting';
+import { useOffer } from './HostOffer';
+import { message, useAction, useCopy } from './action';
 import { styles, palette } from './styles';
 
 /** Where running a bot on a server is explained */
@@ -23,28 +22,16 @@ const SERVER_GUIDE =
 const HIDDEN_KEY = 'weave-community-upgrades-hidden';
 /** How long "Not now" keeps the upgrades out of the way */
 const NOT_NOW_MS = 30 * 24 * 3600 * 1000;
-/**
- * How the CLI is run where this app is built, from the connect command
- * (`VITE_WEAVE_CONNECT`): `npx @weaveprotocol/cli`, or in this repo
- * `npm run weave --`, whose `--` hands the flags after it to the CLI, not npm.
- */
+/** How the CLI is run where this app is built, from the connect command (`VITE_WEAVE_CONNECT`) */
 const CLI = (import.meta.env.VITE_WEAVE_CONNECT ?? 'npx @weaveprotocol/cli connect').replace(
   /\s+connect$/,
   '',
 );
 
 /**
- * What an admin can add to a community, at the top of its screen, shown the
- * way the app shows anything worth having: two tiles, each with what it does
- * in a line, its price or how it stands, and one button. **Always online**
- * (a host the community pays for together) and **an AI helper** (a bot that
- * host runs). The details, and paying, are in a dialog. Quiet by design: only
- * those who may manage the community see it, and "Not now" puts it away for a
- * month.
- *
- * `cli` is how the CLI is run, when not the build's own (`CLI`).
- * `onAutomations` opens the space's automations, where a bot is told what to
- * do.
+ * What an admin can add to a community, at the top of its screen: two tiles,
+ * Always online and an AI helper, each opening a dialog. Only those who may
+ * manage the community see it, and "Not now" puts it away for a month.
  */
 export function CommunitySetup({
   spaceId,
@@ -57,23 +44,16 @@ export function CommunitySetup({
   cli?: string;
   onAutomations?: () => void;
 }) {
-  const node = useNode();
   const access = useAccess(spaceId);
-  const { hosts, look } = useSpaceHosts(spaceId, writable);
-  const [offer, setOffer] = useState<HostDescription | null>(null);
-  const [bots, setBots] = useState<ReadonlyArray<{ did: string; name: string }>>([]);
+  const { hosts, bots, look, lookBots } = useSpaceBots(spaceId, writable);
+  const { offer } = useOffer();
   const [dialog, setDialog] = useState<'online' | 'bot' | null>(null);
   // Put away with "Not now" until a date, asked once when it first shows.
   const [hidden, setHidden] = useState(() => (readHidden()[spaceId] ?? 0) > Date.now());
   const mayManage = writable && roleHolds(access?.role, MANAGE);
 
-  const lookBots = useCallback(() => {
-    void botsIn(node, spaceId).then(setBots, () => setBots([]));
-  }, [node, spaceId]);
   useEffect(() => {
     if (!mayManage) return;
-    lookBots();
-    if (DEFAULT_HOST) void describeHost(DEFAULT_HOST).then(setOffer, () => {});
     // A bot joining, or a payment landing, shows without a reload.
     const timer = setInterval(() => {
       look();
@@ -85,12 +65,8 @@ export function CommunitySetup({
   if (!mayManage || hosts === null || hidden) return null;
   const online = onlineHost(hosts);
   const host = hosts[0];
-  const hosted = online?.bots ?? [];
-  const running = hosted.filter((bot) => bot.running);
-  const botNames = [
-    ...running.map((bot) => bot.name),
-    ...bots.filter((bot) => !hosted.some((h) => h.bot === bot.did)).map((bot) => bot.name),
-  ];
+  const botNames = bots.filter((bot) => bot.state !== 'waiting').map((bot) => bot.name);
+  const waiting = bots.some((bot) => bot.state === 'waiting');
   const onlineView = host ? standing(host) : null;
   // Where a bot would run: the community's host, or before it has one, the host this build offers.
   const runsBots = host ? host.runsBots : offer?.bots === true;
@@ -144,7 +120,7 @@ export function CommunitySetup({
                 {online.fund ? 'Chip in' : 'Manage'}
               </button>
             ) : (
-              <button onClick={() => setDialog('online')} data-variant="primary" style={darkSmall}>
+              <button onClick={() => setDialog('online')} data-variant="primary" style={styles.darkSmall}>
                 {!host ? 'Turn on' : needsFunding(host) ? 'Add to the fund' : 'Manage'}
               </button>
             )
@@ -158,7 +134,7 @@ export function CommunitySetup({
               <StatusPill tone="good">
                 {botNames.length === 1 ? `${botNames[0]} is on` : `${botNames.length} on`}
               </StatusPill>
-            ) : hosted.length ? (
+            ) : waiting ? (
               <StatusPill tone="warn">Fund empty</StatusPill>
             ) : null
           }
@@ -175,7 +151,7 @@ export function CommunitySetup({
               onClick={() => setDialog('bot')}
               disabled={!runsBots && botNames.length === 0}
               data-variant={botNames.length ? 'quiet' : 'primary'}
-              style={botNames.length ? styles.smallButton : darkSmall}
+              style={botNames.length ? styles.smallButton : styles.darkSmall}
             >
               {botNames.length ? 'Manage' : 'Add a bot'}
             </button>
@@ -260,12 +236,9 @@ function Tile({
 }
 
 /**
- * Adding a bot, hosting first. A bot runs where the community is kept online,
- * from the same fund, so a community without one starts there: choosing the
- * host and adding to the fund, in this dialog. Then its name and role, and
- * Add; then what to tell it to do. The trust it takes is said plainly but
- * small: the host runs the bot's account, so it can read what the bot can
- * read. Running it yourself is a link at the bottom, for those who want to.
+ * Adding a bot, hosting first: a bot runs where the community is kept online,
+ * from the same fund, so a community without one adds to the fund here. Then
+ * its name and role; then what to tell it to do.
  */
 export function AddBotDialog({
   spaceId,
@@ -295,8 +268,7 @@ export function AddBotDialog({
   const roles = (access?.roles ?? []).slice(mine + 1).reverse();
   const [role, setRole] = useState<string | null>(null);
   const [name, setName] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  const { run, busy, error: problem, setError: setProblem } = useAction();
   const [started, setStarted] = useState<{ bot: string; name: string } | null>(null);
   const [chosenView, setView] = useState<'add' | 'done' | 'yourself'>(running.length ? 'done' : 'add');
   const chosen = role ?? roles[0]?.name ?? null;
@@ -305,11 +277,9 @@ export function AddBotDialog({
   const view = hosts === null ? 'wait' : !host && chosenView === 'add' ? 'fund' : chosenView;
   const cap = host?.fund?.botDailyCap;
 
-  const add = async () => {
-    if (!host) return;
-    setBusy(true);
-    setProblem(null);
-    try {
+  const add = () =>
+    run(async () => {
+      if (!host) return;
       // Profiles first: a bot says on its own that it is one, which is how "Done by" finds it;
       // and activity, where it says what it is working on, for apps to show.
       for (const definition of [profile, activity])
@@ -321,12 +291,7 @@ export function AddBotDialog({
       });
       setStarted({ bot, name: called });
       setView('done');
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
 
   return (
     <Modal title="Add an AI helper" onClose={onClose} width={460}>
@@ -365,16 +330,7 @@ export function AddBotDialog({
               <Benefit glyph="shield">Holds a role like any member, and can do only what it allows</Benefit>
             </ul>
             <div style={{ display: 'flex', gap: 10 }}>
-              <label
-                style={{
-                  flex: 1,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 6,
-                  fontSize: 12.5,
-                  color: palette.ink.muted,
-                }}
-              >
+              <label style={{ ...field, flex: 1 }}>
                 Name
                 <input
                   value={name}
@@ -384,15 +340,7 @@ export function AddBotDialog({
                 />
               </label>
               {roles.length > 0 && (
-                <label
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                    fontSize: 12.5,
-                    color: palette.ink.muted,
-                  }}
-                >
+                <label style={field}>
                   Role
                   <select
                     value={chosen ?? ''}
@@ -453,9 +401,7 @@ export function AddBotDialog({
                     onClick={() =>
                       void node.collections
                         .define(spaceId, profile)
-                        .catch((error: unknown) =>
-                          setProblem(error instanceof Error ? error.message : String(error)),
-                        )
+                        .catch((error: unknown) => setProblem(message(error)))
                     }
                     style={{ ...styles.linkButton, padding: 0, color: palette.ink.strong }}
                   >
@@ -500,11 +446,7 @@ export function AddBotDialog({
   );
 }
 
-/**
- * For those who want to run the bot themselves: an invite for its role, and
- * the command that makes its account and joins, on their own computer or a
- * server of theirs, with their own model key.
- */
+/** For those who run the bot themselves: an invite for its role, and the command that joins with it */
 function RunItYourself({
   spaceId,
   cli,
@@ -518,17 +460,10 @@ function RunItYourself({
 }) {
   const node = useNode();
   const [invite, setInvite] = useState<string | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
+  const { run, error: problem } = useAction();
   // Single quotes around what the person typed: nothing in it is read by the shell.
   const quoted = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`;
-  const make = async () => {
-    setProblem(null);
-    try {
-      setInvite(await node.spaces.invite(spaceId, role ? { role } : {}));
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
-    }
-  };
+  const make = () => run(async () => setInvite(await node.spaces.invite(spaceId, role ? { role } : {})));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <p style={{ fontSize: 13, color: palette.ink.muted, lineHeight: 1.5 }}>
@@ -568,7 +503,7 @@ function RunItYourself({
 
 /** A line to copy, in full or, for a secret, shortened on screen */
 function Copyable({ text, secret = false }: { text: string; secret?: boolean }) {
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopy();
   return (
     <div
       style={{
@@ -598,12 +533,7 @@ function Copyable({ text, secret = false }: { text: string; secret?: boolean }) 
       <button
         data-variant="quiet"
         style={{ ...styles.smallButton, flexShrink: 0 }}
-        onClick={() =>
-          void navigator.clipboard.writeText(text).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          })
-        }
+        onClick={() => copy(text)}
       >
         {copied ? 'Copied' : 'Copy'}
       </button>
@@ -611,12 +541,7 @@ function Copyable({ text, secret = false }: { text: string; secret?: boolean }) 
   );
 }
 
-/**
- * The community's AI helpers, wherever an app shows them (the example's
- * Hosting and Automations, Liquid's People): always there, whatever the card
- * at the top says. Each bot with how it stands (running, or waiting for
- * the fund), and for those who may manage the space, Add a bot.
- */
+/** The community's AI helpers, each with how it stands, and Add a bot for those who may manage the space */
 export function SpaceBots({
   spaceId,
   writable,
@@ -741,7 +666,7 @@ export function useSpaceBots(spaceId: string, writable: boolean) {
       .filter((bot) => !hosted.some((h) => h.bot === bot.did))
       .map((bot) => ({ ...bot, state: 'own' as const })),
   ];
-  return { bots, look, lookBots };
+  return { hosts, bots, look, lookBots };
 }
 
 /** The bots holding a role in a space: members whose own profile there says `bot: true` */
@@ -765,6 +690,14 @@ async function botsIn(
       : [],
   );
 }
+
+const field: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  fontSize: 12.5,
+  color: palette.ink.muted,
+};
 
 function readHidden(): Record<string, number> {
   try {

@@ -92,7 +92,7 @@ one, so it reads and sends them like anyone: the actions `direct_list` and
 and a rule set off by a direct message hands the bot the message opened.
 
 _Source:_ `packages/core/src/node/actions.ts` (`direct_list`, `direct_send`),
-`packages/cli/src/mcp.ts` (`offered`), `packages/cli/src/agent-rules.ts`
+`packages/core/src/node/actions.ts` (`offeredActions`), `packages/cli/src/agent-rules.ts`
 (`openTrigger`, `ruleContext`). Tests: `packages/core/tests/direct.test.ts`
 ("the direct message actions"), `packages/cli/tests/agent-rules.test.ts`.
 

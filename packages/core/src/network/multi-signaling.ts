@@ -1,5 +1,4 @@
 /**
- * @module multi-signaling
  * Several rendezvous points behind one interface.
  *
  * A relay is a phone book, not an authority: it forwards connection offers and
@@ -48,13 +47,7 @@ export type MultiSignalingEvents = Omit<SignalingEvents, 'status'> & {
   status: (relays: ReadonlyArray<RelayStatus>) => void;
 };
 
-/**
- * Creates a signaling client spanning several relays.
- *
- * @param urls The relays to use for every room. One is fine; none is a programming error.
- * @param did This peer's identifier
- * @returns A client with the same contract as a single-relay one
- */
+/** Creates a signaling client spanning several relays. */
 export function createMultiSignalingClient(urls: ReadonlyArray<string>, did: string): MultiSignalingClient {
   if (urls.length === 0) {
     throw new Error('At least one relay is needed to introduce peers.');
@@ -181,10 +174,7 @@ export function createMultiSignalingClient(urls: ReadonlyArray<string>, did: str
 
   for (const url of defaults) clientFor(url);
 
-  /**
-   * Connects to every relay, succeeding if any of them answers.
-   * @returns Once at least one relay is usable
-   */
+  /** Connects to every relay, succeeding if any of them answers. */
   const connect = async (): Promise<void> => {
     connecting = true;
     const all = [...byUrl.keys()];

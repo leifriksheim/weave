@@ -1,5 +1,4 @@
 /**
- * @module collection-def
  * Collections a space describes itself, as data.
  *
  * `StandardSchemaV1` is a runtime object carrying a function — it cannot be
@@ -32,9 +31,10 @@
  */
 import { Validator, type Schema } from '@cfworker/json-schema';
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from '../types.js';
-import type { LinkDeclaration } from '../records/links.js';
+import { LINK_REL_PATTERN, type LinkDeclaration } from '../records/links.js';
 import type { DefineCollection } from '../node/types.js';
-import { checkRules, PERMISSION_PATTERN, type CollectionRules } from '../records/rules.js';
+import { checkRules, type CollectionRules } from '../records/rules.js';
+import { PERMISSION_PATTERN } from '../records/checks.js';
 import { checkTopics } from '../records/topics.js';
 import { isObject, isRecord } from '../utils/guards.js';
 
@@ -190,15 +190,11 @@ const KEYWORDS = new Set([
   'const',
   'x-choicesFrom',
 ]);
-const LINK_REL = /^[a-z][a-zA-Z0-9]{0,63}$/;
 const TYPES = new Set(['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']);
-const NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
+/** A collection's name: lower case, reverse-DNS, at least one dot */
+export const COLLECTION_NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
 
-/**
- * Why a schema may not be published, or null when it may.
- * @param schema The candidate schema
- * @param path Where in the schema, for the message
- */
+/** Why a schema may not be published, or null when it may. */
 export function checkPublishableSchema(schema: unknown, path = 'schema'): string | null {
   if (!isRecord(schema)) return `${path} must be an object`;
   for (const [keyword, value] of Object.entries(schema)) {
@@ -273,7 +269,7 @@ export function checkPublishableSchema(schema: unknown, path = 'schema'): string
         if (
           !isObject(from) ||
           typeof from.rel !== 'string' ||
-          !LINK_REL.test(from.rel) ||
+          !LINK_REL_PATTERN.test(from.rel) ||
           typeof from.field !== 'string' ||
           !from.field
         ) {
@@ -286,13 +282,11 @@ export function checkPublishableSchema(schema: unknown, path = 'schema'): string
   return null;
 }
 
-/**
- * Why a definition may not be published, or null when it may.
- */
+/** Why a definition may not be published, or null when it may. */
 export function checkStoredCollection(definition: unknown): string | null {
   const d = definition;
   if (!isObject(d)) return 'A collection definition must be an object';
-  if (typeof d.name !== 'string' || !NAME.test(d.name)) {
+  if (typeof d.name !== 'string' || !COLLECTION_NAME.test(d.name)) {
     return 'name must be reverse-DNS, lower case, with at least one dot — e.g. "app.todo.item"';
   }
   if (d.name.startsWith('sys.')) return '"sys.*" collections belong to the protocol';
@@ -305,8 +299,7 @@ export function checkStoredCollection(definition: unknown): string | null {
   if (d.links !== undefined) {
     if (!isRecord(d.links)) return 'links must be an object of roles';
     for (const [rel, declaration] of Object.entries(d.links)) {
-      if (!/^[a-z][a-zA-Z0-9]{0,63}$/.test(rel))
-        return `Link role "${rel}" must be lower camel case, like "about"`;
+      if (!LINK_REL_PATTERN.test(rel)) return `Link role "${rel}" must be lower camel case, like "about"`;
       const decl = declaration;
       if (!isObject(decl)) return `links.${rel} must be an object`;
       const to = decl.to;
@@ -374,10 +367,7 @@ function validatorFor(schema: JsonSchema): Validator {
   return found;
 }
 
-/**
- * Validates a value against a stored schema.
- * @returns The issues; empty when it conforms
- */
+/** Validates a value against a stored schema. */
 export function validateJsonSchema(schema: JsonSchema, value: unknown): ReadonlyArray<SchemaIssue> {
   const result = validatorFor(schema).validate(value);
   if (result.valid) return [];
@@ -388,6 +378,14 @@ export function validateJsonSchema(schema: JsonSchema, value: unknown): Readonly
     path: error.instanceLocation.replace(/^#/, '') || '/',
     message: error.error,
   }));
+}
+
+/** The first way a value breaks a schema, as `at.path: what`, or null when it fits */
+export function schemaProblem(schema: JsonSchema, value: unknown, at = ''): string | null {
+  const issue = validateJsonSchema(schema, value)[0];
+  if (!issue) return null;
+  const path = [at, ...issue.path.split('/').filter(Boolean)].filter(Boolean).join('.');
+  return path ? `${path}: ${issue.message}` : issue.message;
 }
 
 /** Wraps a stored schema as a Standard Schema, so gates and engines take it unchanged. */

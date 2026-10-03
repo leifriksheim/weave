@@ -24,7 +24,6 @@ export interface PasskeyRegistration {
    * ({@link renamePasskey}).
    */
   readonly userHandle: string;
-  readonly publicKey: Uint8Array;
 }
 
 export interface AuthOptions {
@@ -35,21 +34,11 @@ export interface AuthOptions {
 
 export interface PasskeyAuth {
   readonly credentialId: string;
-  readonly authenticatorData: Uint8Array;
 }
-
-// Asked for, though nothing reads it yet: PRF can only be requested when a
-// passkey is made, so asking keeps these passkeys able to carry a secret later.
-const PRF_SALT = new TextEncoder().encode('weave-protocol-key-v1');
 
 /**
  * Whether this device has a built-in authenticator — Touch ID, Windows Hello.
- *
- * Worth knowing before asking for one: `attachment: 'platform'` is a filter
- * rather than a preference, so requesting it on a machine that has none fails
- * outright instead of falling back.
- *
- * @returns Whether a platform authenticator can be used here
+ * Worth knowing first: `attachment: 'platform'` is a filter, not a preference.
  */
 export async function hasPlatformAuthenticator(): Promise<boolean> {
   try {
@@ -59,11 +48,7 @@ export async function hasPlatformAuthenticator(): Promise<boolean> {
   }
 }
 
-/**
- * Registers a new passkey.
- * @param {PasskeyOptions} options Registration options.
- * @returns {Promise<PasskeyRegistration>} Registration result.
- */
+/** Registers a new passkey */
 export async function registerPasskey(options: PasskeyOptions): Promise<PasskeyRegistration> {
   if (!globalThis.navigator?.credentials) {
     throw protocolError('WEBAUTHN_UNAVAILABLE', 'WebAuthn is not supported in this environment.');
@@ -92,13 +77,6 @@ export async function registerPasskey(options: PasskeyOptions): Promise<PasskeyR
       ...(options.attachment ? { authenticatorAttachment: options.attachment } : {}),
     },
     ...(options.hints ? { hints: [...options.hints] } : {}),
-    extensions: {
-      prf: {
-        eval: {
-          first: PRF_SALT,
-        },
-      },
-    },
   };
 
   const credential = await globalThis.navigator.credentials.create({
@@ -109,27 +87,16 @@ export async function registerPasskey(options: PasskeyOptions): Promise<PasskeyR
     throw new Error('Failed to create passkey.');
   }
 
-  const response: AuthenticatorResponse & Partial<Pick<AuthenticatorAttestationResponse, 'getPublicKey'>> =
-    credential.response;
-
-  const rawId = new Uint8Array(credential.rawId);
-
   return Object.freeze({
-    credentialId: base64UrlEncode(rawId),
+    credentialId: base64UrlEncode(new Uint8Array(credential.rawId)),
     userHandle: base64UrlEncode(userId),
-    publicKey: new Uint8Array(response.getPublicKey?.() || new ArrayBuffer(0)),
   });
 }
 
 /**
- * Asks the passkey provider to show a passkey under a new name.
- *
- * A site cannot edit a password manager, so after an account is renamed its
- * passkey would keep the old label and look like a different account. The
- * WebAuthn Signal API lets a site *ask*; the provider decides. Where the
- * browser does not have it, this does nothing.
- *
- * @returns Whether the browser accepted the request — not whether the provider acted on it
+ * Asks the passkey provider to show a passkey under a new name, through the
+ * WebAuthn Signal API; the provider decides. True when the browser accepted
+ * the request, not when the provider acted on it.
  */
 export async function renamePasskey(params: {
   rpId: string;
@@ -162,13 +129,7 @@ export async function renamePasskey(params: {
   }
 }
 
-/**
- * Authenticates using an existing passkey.
- * @param {string} [credentialId] The credential to use. Omit to let the user pick
- *   any discoverable passkey for this origin.
- * @param {AuthOptions} [options] Authentication options.
- * @returns {Promise<PasskeyAuth>} Authentication result.
- */
+/** Authenticates with a passkey: this credential, or any of this origin's when omitted */
 export async function authenticatePasskey(
   credentialId?: string,
   options?: AuthOptions,
@@ -191,13 +152,6 @@ export async function authenticatePasskey(
           ],
         }
       : {}),
-    extensions: {
-      prf: {
-        eval: {
-          first: PRF_SALT,
-        },
-      },
-    },
   };
 
   const credential = await globalThis.navigator.credentials.get({
@@ -208,11 +162,5 @@ export async function authenticatePasskey(
     throw new Error('Failed to authenticate passkey.');
   }
 
-  const response: AuthenticatorResponse & Partial<Pick<AuthenticatorAssertionResponse, 'authenticatorData'>> =
-    credential.response;
-
-  return Object.freeze({
-    credentialId: base64UrlEncode(new Uint8Array(credential.rawId)),
-    authenticatorData: new Uint8Array(response.authenticatorData ?? new ArrayBuffer(0)),
-  });
+  return Object.freeze({ credentialId: base64UrlEncode(new Uint8Array(credential.rawId)) });
 }

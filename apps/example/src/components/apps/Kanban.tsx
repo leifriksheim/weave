@@ -4,6 +4,7 @@ import type { NodeRecord } from '@weaveprotocol/core';
 import { column, task, positionBetween, type Column, type Task } from '@weaveprotocol/core/schemas';
 import { styles, palette } from '../../styles';
 import type { AppProps } from './index';
+import { Lane, Card } from '../Lane';
 
 /** Where a dragged card would land: a lane, and the card it would go before (null: the end) */
 interface Drop {
@@ -23,11 +24,7 @@ const byPosition = <T extends { position?: string }>(a: NodeRecord<T>, b: NodeRe
 };
 const laneOf = (t: NodeRecord) => t.links.find((l) => l.rel === 'column')?.to ?? LOOSE;
 
-/**
- * `std.task` and `std.column` as a board. Dragging a card rewrites only that
- * card: its column link, and a position between its new neighbours. Clicking
- * a card or a column opens it as an ordinary record.
- */
+/** `std.task` and `std.column` as a board; dragging a card rewrites only its column link and position */
 export function Kanban({ space, onOpen }: AppProps) {
   const node = useNode();
   const mayAddTask = useCan(space.id, 'create', task.name);
@@ -142,9 +139,29 @@ export function Kanban({ space, onOpen }: AppProps) {
         const landing = (before: string | null) =>
           dragging !== null && drop?.lane === lane.key && drop.before === before;
         return (
-          <section
+          <Lane
             key={lane.key}
             aria-label={lane.name}
+            count={cards.length}
+            name={
+              lane.record ? (
+                <button
+                  onClick={() => onOpen(lane.record)}
+                  title="Open this column"
+                  style={{
+                    border: 'none',
+                    background: 'none',
+                    padding: 0,
+                    font: 'inherit',
+                    color: palette.ink.strong,
+                  }}
+                >
+                  {lane.name}
+                </button>
+              ) : (
+                <span style={{ color: palette.ink.muted }}>{lane.name}</span>
+              )
+            }
             onDragOver={(e) => {
               if (!dragging) return;
               e.preventDefault();
@@ -155,53 +172,12 @@ export function Kanban({ space, onOpen }: AppProps) {
               if (dragging && drop) move(dragging, drop);
               endDrag();
             }}
-            style={{
-              flex: '0 0 264px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-              padding: 8,
-              borderRadius: 10,
-              background: palette.surface.sunken,
-              border: `1px solid ${palette.surface.line}`,
-            }}
+            style={{ flex: '0 0 264px' }}
           >
-            <header
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 8,
-                padding: '2px 4px 6px',
-              }}
-            >
-              {lane.record ? (
-                <button
-                  onClick={() => onOpen(lane.record)}
-                  title="Open this column"
-                  style={{
-                    border: 'none',
-                    background: 'none',
-                    padding: 0,
-                    font: 'inherit',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: palette.ink.strong,
-                    textAlign: 'left',
-                  }}
-                >
-                  {lane.name}
-                </button>
-              ) : (
-                <span style={{ fontSize: 13, fontWeight: 600, color: palette.ink.muted }}>{lane.name}</span>
-              )}
-              <span style={{ fontSize: 12, color: palette.ink.faint }}>{cards.length}</span>
-            </header>
-
             {cards.map((t) => (
               <div key={t.key}>
                 {landing(t.key) && <Marker />}
-                <button
+                <Card
                   draggable={space.writable}
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = 'move';
@@ -211,29 +187,11 @@ export function Kanban({ space, onOpen }: AppProps) {
                   onDragEnd={endDrag}
                   onDragOver={(e) => overCard(e, lane.key, t.key)}
                   onClick={() => onOpen(t)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: `1px solid ${palette.surface.line}`,
-                    borderRadius: 8,
-                    background: palette.surface.card,
-                    font: 'inherit',
-                    fontSize: 14,
-                    lineHeight: 1.4,
-                    color: palette.ink.body,
-                    textAlign: 'left',
-                    wordBreak: 'break-word',
-                    cursor: space.writable ? 'grab' : 'pointer',
-                    opacity: dragging === t.key ? 0.4 : 1,
-                  }}
+                  style={{ opacity: dragging === t.key ? 0.4 : 1 }}
                 >
-                  {t.body!.title}
-                  {t.body!.notes && (
-                    <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: palette.ink.faint }}>
-                      Has notes
-                    </span>
-                  )}
-                </button>
+                  <span>{t.body!.title}</span>
+                  {t.body!.notes && <span style={{ fontSize: 12, color: palette.ink.faint }}>Has notes</span>}
+                </Card>
               </div>
             ))}
             {landing(null) && <Marker />}
@@ -250,7 +208,7 @@ export function Kanban({ space, onOpen }: AppProps) {
                   + Add task
                 </button>
               ))}
-          </section>
+          </Lane>
         );
       })}
 

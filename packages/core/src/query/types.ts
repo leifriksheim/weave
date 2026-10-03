@@ -1,5 +1,4 @@
 /**
- * @module query/types
  * A query is plain data: an object you could write by hand, send over a wire,
  * or have an agent produce. No parser, no language — filters borrow Mongo's
  * operators, relationships borrow the `include` map that Prisma, Mongoose and

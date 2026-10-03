@@ -35,3 +35,26 @@ export function createEmitter<Events extends { [K in keyof Events]: Listener }>(
     },
   };
 }
+
+/** A set of listeners to one kind of event, called in turn; one that throws is reported and does not stop the rest. */
+export function createListeners<E>(what: string) {
+  const listeners = new Set<(event: E) => void>();
+  return Object.freeze({
+    emit(event: E): void {
+      for (const listener of listeners) {
+        try {
+          listener(event);
+        } catch (error) {
+          console.error(`Error in ${what} listener:`, error);
+        }
+      }
+    },
+    subscribe(listener: (event: E) => void): () => void {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    clear: () => listeners.clear(),
+  });
+}

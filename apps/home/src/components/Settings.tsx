@@ -11,6 +11,7 @@ import {
 } from '@weaveprotocol/core/session';
 import { useAuth, useSession } from '@weaveprotocol/core/react';
 import { Avatar } from '@weave/app-shared/Avatar';
+import { message, useAction, useCopy } from '@weave/app-shared/action';
 import { PairPhone } from './PairPhone';
 import { Hosting } from './Hosting';
 import { Notifications } from './Notifications';
@@ -33,22 +34,23 @@ export function Settings() {
   const onlyWayIn = Number(hasPasskey) + Number(hasPassword) === 1;
   const [changingPassword, setChangingPassword] = useState(false);
   const place = state.place;
-  const [disconnecting, setDisconnecting] = useState<string | null>(null);
-  const [disconnectError, setDisconnectError] = useState<string | null>(null);
-  const disconnect = async (app: Connection) => {
-    setDisconnecting(connectionId(app));
-    setDisconnectError(null);
-    try {
-      // An agent is its own key; an app takes the agents that connected through it along.
-      await auth.disconnect(app.origin, app.agent ? { audience: app.audience } : {});
-    } catch (error) {
-      setDisconnectError(
-        `Could not disconnect ${app.name ?? app.origin}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    } finally {
-      setDisconnecting(null);
-    }
+  const [leaving, setLeaving] = useState<string | null>(null);
+  const { run, busy, error: disconnectError } = useAction();
+  const disconnecting = busy ? leaving : null;
+  /** Runs `work` for the connection `id`, saying what went wrong as `Could not disconnect <what>: …` */
+  const leave = (id: string, what: string, work: () => Promise<unknown>) => {
+    setLeaving(id);
+    void run(() =>
+      work().catch((error: unknown) => {
+        throw new Error(`Could not disconnect ${what}: ${message(error)}`);
+      }),
+    );
   };
+  // An agent is its own key; an app takes the agents that connected through it along.
+  const disconnect = (app: Connection) =>
+    leave(connectionId(app), app.name ?? app.origin, () =>
+      auth.disconnect(app.origin, app.agent ? { audience: app.audience } : {}),
+    );
 
   // Carriers are in the account registry, so every device lists them — not
   // only the home that connected one, which is all `connections()` knows.
@@ -106,19 +108,11 @@ export function Settings() {
   const elsewhere = (carriers ?? []).filter(
     (carrier) => !known.has(carrier.space) && !hostKeys.has(carrier.did),
   );
-  const removeCarrier = async (space: string) => {
-    setDisconnecting(space);
-    try {
+  const removeCarrier = (space: string) =>
+    leave(space, 'it', async () => {
       await session.node.carriers.remove(space);
       setCarriers(await session.node.carriers.list());
-    } catch (error) {
-      setDisconnectError(
-        `Could not disconnect it: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    } finally {
-      setDisconnecting(null);
-    }
-  };
+    });
 
   const choose = async (choice: StaySignedIn) => {
     setStay(choice);
@@ -145,7 +139,7 @@ export function Settings() {
             }
           >
             <button
-              onClick={() => void disconnect(app)}
+              onClick={() => disconnect(app)}
               disabled={disconnecting !== null}
               data-variant="quiet"
               style={styles.smallButton}
@@ -160,7 +154,7 @@ export function Settings() {
             label={`${carrier.name} · keeps your spaces online · connected on another device · ${presence(carrier.space)}`}
           >
             <button
-              onClick={() => void removeCarrier(carrier.space)}
+              onClick={() => removeCarrier(carrier.space)}
               disabled={disconnecting !== null}
               data-variant="quiet"
               style={styles.smallButton}
@@ -490,7 +484,7 @@ function PasswordForm({
  */
 function RecoveryCode({ reveal, name, did }: { reveal: () => string | null; name: string; did: string }) {
   const [code, setCode] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopy();
   const download = () => {
     if (!code) return;
     const kit = recoveryKit({ code, name, did });
@@ -525,24 +519,13 @@ function RecoveryCode({ reveal, name, did }: { reveal: () => string | null; name
             {code}
           </code>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => void navigator.clipboard.writeText(code).then(() => setCopied(true))}
-              data-variant="quiet"
-              style={styles.smallButton}
-            >
+            <button onClick={() => copy(code)} data-variant="quiet" style={styles.smallButton}>
               {copied ? 'Copied' : 'Copy'}
             </button>
             <button onClick={download} data-variant="quiet" style={styles.smallButton}>
               Download
             </button>
-            <button
-              onClick={() => {
-                setCode(null);
-                setCopied(false);
-              }}
-              data-variant="quiet"
-              style={styles.smallButton}
-            >
+            <button onClick={() => setCode(null)} data-variant="quiet" style={styles.smallButton}>
               Hide
             </button>
           </div>
@@ -562,23 +545,16 @@ function RecoveryCode({ reveal, name, did }: { reveal: () => string | null; name
 /** Agents connect through an app's origin, several to one, so each is named by its key */
 const connectionId = (app: Connection) => (app.agent ? app.audience : app.origin);
 
-/** "Todo (todo.example) · read and change Groceries · until 3 October" */
-
 /** The account's DID, short, with a way to copy it whole — what a host's `--allow` takes */
 function CopyDid({ did }: { did: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    await navigator.clipboard.writeText(did);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
+  const { copied, copy } = useCopy();
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
       <code title={did} style={{ fontSize: 12, color: palette.ink.faint }}>
         {did.slice(0, 16)}…{did.slice(-6)}
       </code>
       <button
-        onClick={() => void copy()}
+        onClick={() => copy(did)}
         data-variant="quiet"
         style={{ ...styles.smallButton, height: 24, fontSize: 12 }}
       >
@@ -588,6 +564,7 @@ function CopyDid({ did }: { did: string }) {
   );
 }
 
+/** "Todo (todo.example) · read and change Groceries · until 3 October" */
 function describeConnection(app: Connection): string {
   const url = new URL(app.origin);
   const extension = url.protocol === 'chrome-extension:' || url.protocol === 'moz-extension:';

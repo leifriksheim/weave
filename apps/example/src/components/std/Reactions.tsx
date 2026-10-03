@@ -8,14 +8,7 @@ import { palette } from '../../styles';
 
 const QUICK = ['👍', '❤️', '🎉', '😂', '👀', '🙏'];
 
-/**
- * `std.reaction` on a record: each emoji with its count, yours highlighted, a
- * click to add or take back — and a small picker for the rest.
- *
- * `compact` is only the button that opens the picker, quiet like a row's other
- * actions: where nothing has been reacted yet, so showing it changes no
- * row's height.
- */
+/** `std.reaction` on a record: each emoji with its count, yours highlighted; `compact` is only the picker button. */
 export function Reactions({
   space,
   target,

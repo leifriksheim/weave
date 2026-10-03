@@ -1,9 +1,4 @@
-/**
- * Showing people by name. A space tells us the name each person gave there;
- * this turns an identity into something to print — and never lets a name
- * pretend to be someone else: two people with the same name get the tail of
- * their identity after it, and someone with no profile is shown by that tail.
- */
+/** People by name, never letting a name pass for someone else: duplicates get their identity's tail. */
 import { displayName, type SpaceProfile } from '@weaveprotocol/core';
 
 /** Someone in a space: the name the space keeps, and whether their `std.profile` says they are a bot */

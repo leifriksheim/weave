@@ -4,7 +4,8 @@
  */
 import type { CarriedSpace } from '@weaveprotocol/core/node';
 import { ensureFolderPermission, recallDataFolder } from '@weaveprotocol/core/storage';
-import type { CarrierStatus } from './shared';
+import { avatarCells } from '@weave/app-shared/avatar-cells';
+import type { CarrierStatus, PodState } from './shared';
 
 type Child = Node | string | null | false | undefined;
 type Attribute = string | number | boolean | null | undefined | ((event: Event) => void);
@@ -41,18 +42,12 @@ export function mark(): HTMLElement {
 }
 
 /**
- * The account's avatar, drawn exactly as the home draws it (`apps/shared/src/Avatar.tsx`),
+ * The account's avatar, drawn exactly as the home draws it (`apps/shared/src/avatar-cells.ts`),
  * so the account here and the account there are recognisably the same one — or
  * recognisably not.
  */
 function avatar(did: string, size = 32): SVGSVGElement {
-  let seed = 2166136261;
-  for (let i = 0; i < did.length; i++) {
-    seed ^= did.charCodeAt(i);
-    seed = Math.imul(seed, 16777619);
-  }
-  seed >>>= 0;
-  const hue = seed % 360;
+  const { hue, cells } = avatarCells(did);
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('width', String(size));
   svg.setAttribute('height', String(size));
@@ -60,19 +55,11 @@ function avatar(did: string, size = 32): SVGSVGElement {
   svg.setAttribute('role', 'img');
   svg.setAttribute('aria-label', 'Account avatar');
   svg.style.cssText = `border-radius:${size / 4}px;background:hsl(${hue} 46% 92%);flex-shrink:0;display:block`;
-  for (let x = 0; x < 3; x++) {
-    for (let y = 0; y < 5; y++) {
-      if (((seed >> (x * 5 + y)) & 1) === 0) continue;
-      for (const at of x < 2 ? [x, 4 - x] : [x]) {
-        const cell = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        cell.setAttribute('x', String(at));
-        cell.setAttribute('y', String(y));
-        cell.setAttribute('width', '1');
-        cell.setAttribute('height', '1');
-        cell.setAttribute('fill', `hsl(${hue} 62% 48%)`);
-        svg.append(cell);
-      }
-    }
+  for (const { x, y } of cells) {
+    const cell = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    for (const [name, value] of Object.entries({ x, y, width: 1, height: 1, fill: `hsl(${hue} 62% 48%)` }))
+      cell.setAttribute(name, String(value));
+    svg.append(cell);
   }
   return svg;
 }
@@ -143,6 +130,22 @@ export function summary(status: CarrierStatus): string {
   return spaces.some((space) => space.peers > 0)
     ? `Keeping ${count} online.`
     : `Keeping ${count} online. Nobody else is online right now.`;
+}
+
+/** How the pod is doing, in a line both pages show the same */
+export function podLine(state: Exclude<PodState, 'none'>, folder: string | null): HTMLElement {
+  const said =
+    state === 'writing'
+      ? `Up to date: everything that arrives is written into “${folder}”.`
+      : state === 'needs-permission'
+        ? `Chrome wants a click before this writes to “${folder}” again. Until then, your pod catches up later.`
+        : `Your account lives in a pod, “${folder}”. Choose that folder, and this keeps it up to date while your apps are closed.`;
+  return h(
+    'p',
+    { class: 'hint' },
+    h('span', { class: `dot ${state === 'writing' ? 'good' : 'warn'}` }),
+    said,
+  );
 }
 
 /**

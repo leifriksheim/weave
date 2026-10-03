@@ -2,37 +2,17 @@
  * Queries typed from the collections they name. The type assertions are the
  * point: this file is also checked with tsc (see the note at the bottom).
  */
-import { test, describe, afterEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as z from 'zod';
 
-import { createNode } from '../src/node/node.js';
-import type { P2PNode } from '../src/node/types.js';
-import { createIdentityManager } from '../src/identity/identity-manager.js';
-import { createLocalRootSigner } from '../src/identity/root-signer.js';
-import { generateSeed } from '../src/identity/recovery-code.js';
 import { collection } from '../src/schema/collection-def.js';
 import type { Typed } from '../src/query/types.js';
 import { poll as stdPoll, vote as stdVote, useSchemas } from '../src/schemas/index.js';
-import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
+import { person as somebody } from './helpers/person.js';
 
-const open: P2PNode[] = [];
-afterEach(async () => {
-  await Promise.all(open.splice(0).map((node) => node.close()));
-});
-
-async function person() {
-  const manager = createIdentityManager();
-  const me = await manager.fromSeed(generateSeed());
-  const node = await createNode({
-    signer: createLocalRootSigner(me, manager.getProvider()),
-    stores: memoryStores(),
-    watchIntervalMs: 0,
-  });
-  open.push(node);
-  return node;
-}
+const person = async () => (await somebody()).node;
 
 const Poll = z.object({ question: z.string().min(1), options: z.array(z.string().min(1)).min(2) });
 const Vote = z.object({ choice: z.int().min(0) });

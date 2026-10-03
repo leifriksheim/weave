@@ -1,20 +1,10 @@
 /**
- * The terminal as an agent: `weave connect <code>` once, then `weave mcp`
- * whenever Claude Code, Claude Desktop or Cursor starts it.
- *
- * Connecting makes a key on this computer — it never leaves — and trades the
- * code from the app for an agent's note from the person's account home
- * (`packages/core/src/session/agent-link.ts`). The note says "agent" and covers the whole
- * account, for as long as the person chose. Nothing here ever holds the seed.
- *
- * From then on this is a node of its own: it finds the account's spaces
- * through the account's list, meets the person's other devices over WebRTC,
- * and keeps working with every tab closed. What it writes shows "via agent",
- * and every device refuses it changing collections, roles, or the account.
- *
- * Kept in `<home>/agent/`: `key.json` (the key), `grant.json` (the note),
- * `data/` (the spaces), and for `weave agent`, `anthropic-key` (the person's
- * API key) and `spend.json` (what today cost). Only this user can read them.
+ * The terminal as an agent: `weave connect <code>` trades the app's code for
+ * an agent's note from the account home, signed to a key made here that never
+ * leaves (`packages/core/src/session/agent-link.ts`). Then `weave mcp` and
+ * `weave agent` run a node of their own as the agent, writing "via agent".
+ * Kept in `<home>/agent/`, readable only by this user: `key.json`,
+ * `grant.json`, `data/`, and `weave agent`'s model keys and `spend.json`.
  */
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -23,9 +13,7 @@ import {
   CLOSE_DID_TAKEN,
   createNode,
   folderStores,
-  publicKeyToDid,
-  P256_MULTICODEC,
-  createP256Provider,
+  didOf,
   DEFINE,
   roleHolds,
   type P2PNode,
@@ -35,33 +23,24 @@ import { grantSigner, type Grant } from '@weaveprotocol/core/session';
 import { acceptAgentLink, checkAgentGrant } from '@weaveprotocol/core/session';
 import { base64UrlDecode } from '@weaveprotocol/core';
 import { openFsDirectory } from './fs-directory.js';
-import type { Unlocked } from './home.js';
-import { errorCode, isRecord } from './json.js';
+import { nodeFor, type Unlocked } from './home.js';
+import { commaList, errorCode, isRecord, messageOf } from './json.js';
 
 /** The relay the apps meet on unless told otherwise */
 const DEFAULT_RELAYS: ReadonlyArray<string> = ['wss://p2p-web-relay.fly.dev'];
 
 /** Relays from `$WEAVE_RELAYS` (comma separated), or the default */
 export function configuredRelays(): string[] {
-  const listed = (process.env.WEAVE_RELAYS ?? '')
-    .split(',')
-    .map((relay) => relay.trim())
-    .filter(Boolean);
+  const listed = commaList(process.env.WEAVE_RELAYS);
   return listed.length ? listed : [...DEFAULT_RELAYS];
 }
 
 /**
- * Hosts from `$WEAVE_HOSTS` (comma separated, `https://host`): where the
- * node looks for the account before it knows which host the account uses,
- * so on a server it finds its spaces over a host's socket without meeting a
- * device first.
+ * Hosts from `$WEAVE_HOSTS` (`https://host`, comma separated), where the node
+ * looks for the account before it knows its host: on a server, it finds its
+ * spaces over a host's socket without meeting a device first.
  */
-function configuredHosts(): string[] {
-  return (process.env.WEAVE_HOSTS ?? '')
-    .split(',')
-    .map((host) => host.trim())
-    .filter(Boolean);
-}
+const configuredHosts = () => commaList(process.env.WEAVE_HOSTS);
 
 /**
  * WebRTC, which Node doesn't have: the same API over libdatachannel. Loaded
@@ -112,8 +91,7 @@ async function agentKey(home: string): Promise<Stored> {
       publicKey: made.publicKey,
     };
   }
-  const did = publicKeyToDid(await createP256Provider().exportPublicKey(keys.publicKey), P256_MULTICODEC);
-  return { keys, did };
+  return { keys, did: await didOf(keys.publicKey) };
 }
 
 /** The grant this computer's agent was given, or null before `weave connect` */
@@ -216,12 +194,12 @@ export async function startAgentNode(
     if (!held.has(space.id)) await base.spaces.join(space.invite).catch(() => {});
 
   const node = await base.asAgent({ keys: key.keys, note: grant.token });
-  // Open every space, so it syncs while the agent works rather than on first use.
-  for (const space of await node.spaces.list()) void node.spaces.hold(space.id).catch(() => {});
+  const stopHolding = await holdEverySpace(node);
   return {
     node,
     grant,
     close: async () => {
+      stopHolding();
       await node.close().catch(() => {});
       await base.close();
     },
@@ -235,12 +213,9 @@ export async function forgetAgent(home: string): Promise<void> {
 }
 
 /**
- * Says a bot is one, in a space whose apps keep profiles: its `std.profile`
- * there gets `bot: true`. A convention between apps, not something the
- * protocol checks. A bot whose role may add collections adds `std.profile`
- * where it is missing, as an app does when it starts a hosted bot. False
- * while the space keeps none: there apps can't tell the bot from a person,
- * or offer it under "Done by", and its name has to say it.
+ * Says a bot is one where apps keep profiles: `bot: true` on its
+ * `std.profile`, an app convention. It adds `std.profile` where its role may;
+ * false while the space keeps none.
  */
 export async function discloseBot(node: P2PNode, space: string): Promise<boolean> {
   const collections = await node.collections.list(space);
@@ -260,21 +235,14 @@ export async function discloseBot(node: P2PNode, space: string): Promise<boolean
 }
 
 /**
- * Gives a bot's account the name it was made with, when the account says
- * none. A space knows a member by the name their account says, and people
- * type it after "@"; the name given at `weave agent --bot` is kept only in
- * the bot's folder until then, and without it every space shows the bot by
- * the tail of its DID. A name the account already says is left alone.
+ * Gives a bot's account the name it was made with, when it says none: spaces
+ * know a member, and people mention it, by the name its account says.
  */
 export async function nameBot(node: P2PNode, name: string): Promise<void> {
   if (!(await node.account.profile())) await node.account.setName(name);
 }
 
-/**
- * A bot's node: an account of its own, unlocked here, online the way an
- * agent is (relays and WebRTC), named (`nameBot`), and holding every space it
- * is in, where it says it is a bot (`discloseBot`).
- */
+/** A bot's node: its own account, online as an agent's is, named, holding every space and saying it is a bot there */
 export async function startBotNode(
   unlocked: Unlocked,
   options: {
@@ -288,11 +256,7 @@ export async function startBotNode(
   const relays = options.relays ?? configuredRelays();
   // Only a node that meets devices through relays needs WebRTC, a native module a host doesn't ship.
   if (relays.length) await enableWebRTC();
-  const node = await createNode({
-    signer: unlocked.signer,
-    stores: unlocked.stores,
-    accountKey: unlocked.accountKey,
-    contactKey: unlocked.contactKey,
+  const node = await nodeFor(unlocked, {
     network: {
       relays,
       hosts: configuredHosts(),
@@ -300,7 +264,6 @@ export async function startBotNode(
     },
   });
   await nameBot(node, unlocked.account.name);
-  const held = new Set<string>();
   // Spaces it has not said it is a bot in: tried again as their records change, since `std.profile` may arrive later.
   const untold = new Set<string>();
   const trying = new Set<string>();
@@ -313,30 +276,21 @@ export async function startBotNode(
       .catch(() => {})
       .finally(() => trying.delete(space));
   };
-  const holdAll = async () => {
-    for (const space of await node.spaces.list()) {
-      if (held.has(space.id)) continue;
-      held.add(space.id);
-      untold.add(space.id);
-      void node.spaces
-        .hold(space.id)
-        .then(() => tell(space.id))
-        .catch(() => {});
-      // Said only once the space has had time to arrive: a `std.profile` still on its way is no reason to.
-      timers.push(
-        setTimeout(() => untold.has(space.id) && options.undisclosed?.(space.id), UNDISCLOSED_AFTER_MS),
-      );
-    }
-  };
-  // A space joined while it runs is held, and told, too.
   const unsubscribe = node.subscribe((event) => {
-    if (event.type === 'spaces') void holdAll();
     if (event.type === 'records' && untold.has(event.space)) tell(event.space);
   });
-  await holdAll();
+  const stopHolding = await holdEverySpace(node, {
+    onHold: (space) => {
+      untold.add(space);
+      tell(space);
+      // Said only once the space has had time to arrive: a `std.profile` still on its way is no reason to.
+      timers.push(setTimeout(() => untold.has(space) && options.undisclosed?.(space), UNDISCLOSED_AFTER_MS));
+    },
+  });
   return {
     node,
     close: async () => {
+      stopHolding();
       timers.forEach(clearTimeout);
       unsubscribe();
       await node.close();
@@ -381,4 +335,64 @@ export function watchRelayRefusal(node: P2PNode, onChange: (refused: boolean) =>
     refused = now;
     onChange(now);
   });
+}
+
+/**
+ * Holds every space the node is in, and lets go of each it leaves, so each
+ * syncs while it runs rather than on first use. Looks again whenever its spaces
+ * change, and every `everyMs` for spaces another process added to the same
+ * folder. A space that fails to open is tried again on the next look.
+ * @returns How to stop looking
+ */
+export async function holdEverySpace(
+  node: P2PNode,
+  options: {
+    readonly everyMs?: number;
+    readonly onHold?: (space: string) => void;
+    readonly onRelease?: (space: string) => void;
+    readonly log?: (line: string) => void;
+  } = {},
+): Promise<() => void> {
+  const held = new Map<string, () => Promise<void>>();
+  const look = async () => {
+    const ids = new Set((await node.spaces.list()).map((space) => space.id));
+    for (const id of ids) {
+      if (held.has(id)) continue;
+      try {
+        held.set(id, await node.spaces.hold(id));
+        options.onHold?.(id);
+      } catch (error) {
+        options.log?.(`could not open space ${id}: ${messageOf(error)}`);
+      }
+    }
+    for (const [id, release] of held) {
+      if (ids.has(id)) continue;
+      held.delete(id);
+      await release();
+      options.onRelease?.(id);
+    }
+  };
+  // One look at a time, and one more queued behind it for whatever changed meanwhile.
+  let running = Promise.resolve();
+  let queued = false;
+  const lookSoon = () => {
+    if (queued) return running;
+    queued = true;
+    running = running
+      .then(() => {
+        queued = false;
+        return look();
+      })
+      .catch((error: unknown) => options.log?.(`looking for spaces failed: ${messageOf(error)}`));
+    return running;
+  };
+  const unsubscribe = node.subscribe((event) => {
+    if (event.type === 'spaces') void lookSoon();
+  });
+  const timer = options.everyMs ? setInterval(() => void lookSoon(), options.everyMs) : undefined;
+  await lookSoon();
+  return () => {
+    clearInterval(timer);
+    unsubscribe();
+  };
 }

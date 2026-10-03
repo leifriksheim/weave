@@ -22,16 +22,11 @@ import type {
 import { collectionLabel, fieldsOf, recordLabel, titleField } from '../derive/schema-ui';
 import { nameOf, peopleFrom } from '../derive/people';
 import { ago } from '../derive/time';
-import { styles, palette } from '../styles';
+import { message as messageOf } from '@weave/app-shared/action';
+import { styles, palette, ui } from '../styles';
+import { DocsNote } from './DocsNote';
 
-/**
- * A place to try the query language on this space's own data.
- *
- * A query is plain JSON, so the editor is just text: it runs a moment after
- * you stop typing, and again whenever the space changes. The examples are
- * built from the collections actually here, so every one of them finds
- * something real.
- */
+// Try the query language on this space's own data, with examples built from its real collections.
 
 const DEBOUNCE = 250;
 
@@ -144,7 +139,7 @@ function examplesFor(collections: ReadonlyArray<NodeCollection>, me: string): Ex
 
 /** "Unexpected token } in JSON at position 42" → where that is, as a line and column */
 function jsonProblem(text: string, error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = messageOf(error);
   const at = /position (\d+)/.exec(message);
   let where = '';
   if (at && !/\(line \d+/.test(message)) {
@@ -260,16 +255,7 @@ export function QueryPlayground({
               onClick={() => setText(pretty(example.query))}
               data-variant={current ? undefined : 'quiet'}
               aria-pressed={current}
-              style={
-                current
-                  ? {
-                      ...chipStyle,
-                      backgroundColor: palette.accent.base,
-                      color: '#fff',
-                      borderColor: palette.accent.base,
-                    }
-                  : chipStyle
-              }
+              style={{ ...ui.chip, padding: '0 11px', ...(current && ui.chipOn) }}
             >
               {example.label}
             </button>
@@ -297,7 +283,9 @@ export function QueryPlayground({
             </Problem>
           )}
           {!jsonError && queryError && <Problem title="The query can't run">{queryError}</Problem>}
-          <Cheatsheet />
+          <DocsNote path="packages/core/docs/query-format.md">
+            A query is one JSON object; only “collection” is required.
+          </DocsNote>
         </div>
 
         <div
@@ -581,8 +569,7 @@ function ResultTable({
                   color: palette.ink.strong,
                   fontWeight: 500,
                   maxWidth: 240,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
+                  ...ui.ellipsis,
                 }}
               >
                 {label(record)}
@@ -610,7 +597,7 @@ function Included({ record, label }: { record: QueryRecord; label: (r: QueryReco
   const entries = Object.entries(record.included ?? {});
   if (entries.length === 0) return <span style={{ color: palette.ink.faint }}>—</span>;
   return (
-    <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <span style={{ ...ui.stack, gap: 2 }}>
       {entries.map(([name, found]) => {
         if (typeof found === 'number') {
           return (
@@ -631,112 +618,5 @@ function Included({ record, label }: { record: QueryRecord; label: (r: QueryReco
   );
 }
 
-// ─── How queries work ──────────────────────────────────────────────
-
-/** Everything the query language supports, from query/types.ts and query/filter.ts — nothing more */
-function Cheatsheet() {
-  const row = (code: string, words: string) => (
-    <li key={code} style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
-      <code style={{ fontSize: 12, color: palette.ink.strong, minWidth: 96, flexShrink: 0 }}>{code}</code>
-      <span>{words}</span>
-    </li>
-  );
-  const list: CSSProperties = { listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 };
-  const heading: CSSProperties = { fontSize: 12, fontWeight: 600, color: palette.ink.body, marginTop: 6 };
-  return (
-    <details style={{ ...styles.panel, marginTop: 4 }}>
-      <summary style={{ ...styles.panelSummary, fontSize: 13 }}>How queries work</summary>
-      <div style={{ ...styles.panelBody, fontSize: 12.5 }}>
-        <p>
-          A query is one JSON object. Only “collection” is required; everything else narrows or shapes what
-          comes back.
-        </p>
-
-        <p style={heading}>The parts</p>
-        <ul style={list}>
-          {row('collection', 'Which collection to look through, by its name. One per query.')}
-          {row('where', 'Which ones to keep. Every condition must hold.')}
-          {row(
-            'sort',
-            '{ "field": "asc" or "desc" }. Several fields sort in order. Without it: oldest first.',
-          )}
-          {row('limit', 'At most this many.')}
-          {row('cursor', 'Where the next page starts. Use “Next page” below the results.')}
-          {row('include', 'Also bring back records linked to each one — see below.')}
-        </ul>
-
-        <p style={heading}>Conditions in “where”</p>
-        <p>
-          <code>{'{ "done": true }'}</code> means the field equals that value. A dotted name like{' '}
-          <code>address.city</code> looks inside. For anything else, use an operator:
-        </p>
-        <ul style={list}>
-          {row('$eq  $ne', 'Equal to, not equal to. $ne also keeps records without the field.')}
-          {row('$gt  $gte', 'More than, at least. Numbers with numbers, text with text.')}
-          {row('$lt  $lte', 'Less than, at most.')}
-          {row('$in  $nin', 'One of a list of values, or none of them.')}
-          {row('$exists', 'true: the field is there. false: it is missing.')}
-          {row('$contains', 'Text that contains this, ignoring capitals — or a list holding this item.')}
-          {row('$and  $or', 'A list of conditions: all of them, or any of them.')}
-          {row('$not', 'A condition that must not hold.')}
-        </ul>
-
-        <p style={heading}>Fields about the record itself</p>
-        <ul style={list}>
-          {row('@key', 'The record’s id.')}
-          {row('@collection', 'The collection it is in.')}
-          {row('@createdBy', 'The account that first made it.')}
-          {row('@root', 'The account behind this version.')}
-          {row('@author', 'The device key that signed this version — not the account.')}
-          {row('@createdAt', 'When it was made, as text like "2026-09-24T10:00:00Z" — compare with $gte.')}
-          {row('@updatedAt', 'When this version was written.')}
-          {row('@seq', 'How many times it has been edited: 0 for never.')}
-        </ul>
-
-        <p style={heading}>Following links with “include”</p>
-        <p>Give each include a name you choose. It comes back on every record under that name.</p>
-        <ul style={list}>
-          {row('rel', 'The kind of link to follow, like "about". Required.')}
-          {row('from', 'Only records in this collection.')}
-          {row('direction', '"in" (the default): records pointing at this one. "out": records it points at.')}
-          {row('where', 'Only linked records matching these conditions.')}
-          {row('limit', 'At most this many.')}
-          {row('count', 'true: just how many, not the records.')}
-          {row('include', 'Follow links again from those — up to 3 levels deep.')}
-        </ul>
-      </div>
-    </details>
-  );
-}
-
-// ─── Styles ────────────────────────────────────────────────────────
-
-const chipStyle: CSSProperties = {
-  height: 28,
-  padding: '0 11px',
-  borderRadius: palette.radius.pill,
-  border: `1px solid ${palette.surface.line}`,
-  backgroundColor: palette.surface.card,
-  color: palette.ink.body,
-  fontSize: 12.5,
-  fontWeight: 500,
-  whiteSpace: 'nowrap',
-};
-
-const th: CSSProperties = {
-  textAlign: 'left',
-  fontSize: 12,
-  fontWeight: 500,
-  color: palette.ink.muted,
-  padding: '9px 12px',
-  borderBottom: `1px solid ${palette.surface.line}`,
-  whiteSpace: 'nowrap',
-  backgroundColor: palette.surface.sunken,
-};
-
-const td: CSSProperties = {
-  padding: '9px 12px',
-  borderBottom: `1px solid ${palette.surface.line}`,
-  whiteSpace: 'nowrap',
-  verticalAlign: 'top',
-};
+const th: CSSProperties = { ...ui.th, padding: '9px 12px', whiteSpace: 'nowrap' };
+const td: CSSProperties = { ...ui.td, padding: '9px 12px', whiteSpace: 'nowrap', verticalAlign: 'top' };

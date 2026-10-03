@@ -1,5 +1,4 @@
 /**
- * @module records/rules
  * What a collection allows: who may create its records, who may edit and
  * delete them, what must be unique, and which fields are fixed at creation.
  *
@@ -24,7 +23,7 @@
  * What the others can't say, `check` can: conditions over the body, the
  * version before and versions it cites (`records/checks.ts`).
  */
-import { checkChecks, type Check } from './checks.js';
+import { checkChecks, PERMISSION_PATTERN, type Check } from './checks.js';
 import { hashedKey } from '../utils/hash.js';
 import { isList, isRecord, readField } from '../utils/guards.js';
 import type { Link } from '../types.js';
@@ -35,9 +34,6 @@ import type { Link } from '../types.js';
  * permission `app.poll/moderate`, which a role may hold.
  */
 export type Who = 'member' | 'creator' | `can:${string}`;
-
-/** A permission a collection declares: lower camel case, like `moderate` or `closePolls` */
-export const PERMISSION_PATTERN = /^[a-z][a-zA-Z0-9]{0,39}$/;
 
 /** The full name a role holds for a collection's permission */
 export const permissionName = (collection: string, permission: string) => `${collection}/${permission}`;

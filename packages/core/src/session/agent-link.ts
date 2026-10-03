@@ -1,42 +1,23 @@
 /**
  * @module session/agent-link
- * Connecting an agent on a computer — Claude Code, Claude Desktop, Cursor —
- * with one command the person copies from an app.
- *
- * The app shows `weave connect wv_…`. The code is a random secret, made for
- * this one connection. Both sides work out a meeting room and a key from it,
- * meet on a relay, and talk over the ordinary peer connection:
- *
- * 1. The terminal says who it is: its own key, made on that computer and never
- *    sent anywhere, and a name for the person to recognise ("Agent on
- *    leifs-macbook").
- * 2. The app shows that and waits for a click, which opens the account home.
- *    The person allows it there, and the home signs an agent's note for that
- *    key — the same note an app gets, saying "agent".
- * 3. The app hands the note back. The terminal keeps it, and from then on runs
- *    a node of its own: the app's tab can close.
- *
- * Everything said is sealed with the key from the code, so the relay — which
- * introduces the two sides and could put itself between them — learns nothing
- * and can change nothing. It is the phone pairing's arrangement
- * (`identity/pairing.ts`), with a secret made for the purpose instead of the
- * seed. The code is pasted, not typed, so it can be long enough that recording
- * the traffic and guessing it later gets nowhere; it works once, and only while
- * the app is showing it.
+ * Connecting an agent on a computer with one command copied from an app:
+ * `weave connect wv_…`. Both sides derive a room and a key from the code's
+ * random secret, as phone pairing does from the seed; the terminal says who it
+ * is, the person allows it at their account home, and the app hands back an
+ * agent's note. Everything is sealed, so the relay learns and changes nothing.
  */
 import { createNetworkManager, type NetworkManager } from '../network/network-manager.js';
 import { createMesh } from '../network/mesh.js';
 import type { PeerTransport } from '../network/transport.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
-import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
-import { verifyUCAN, parseUCAN } from '../identity/ucan.js';
+import { didOf } from '../identity/did.js';
+import { parseUCAN } from '../identity/ucan.js';
 import { isAgentNote } from '../identity/agent-note.js';
-import { sealPairingPayload, openPairingPayload } from '../identity/pairing.js';
-import { base64UrlDecode, base64UrlEncode, concatBytes, utf8Decode, utf8Encode } from '../utils/encoding.js';
-import { cidFromBytes } from '../utils/hash.js';
-import { bufferSource } from '../utils/guards.js';
+import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
+import { isObject } from '../utils/guards.js';
 import type { NetworkMessage, PeerInfo } from '../types.js';
-import type { Grant } from './connect.js';
+import { checkGrant, type Grant } from './connect.js';
+import { sealedRoom } from './pairing.js';
 
 const CODE_PREFIX = 'wv_';
 const SECRET_BYTES = 16;
@@ -84,47 +65,6 @@ export function readAgentCode(input: string): Uint8Array {
   return secret;
 }
 
-async function linkRoom(secret: Uint8Array): Promise<string> {
-  return encodeURIComponent(await cidFromBytes(concatBytes(ROOM_PREFIX, secret)));
-}
-
-async function linkKey(secret: Uint8Array): Promise<CryptoKey> {
-  const material = await globalThis.crypto.subtle.importKey(
-    'raw',
-    bufferSource(secret),
-    { name: 'HKDF' },
-    false,
-    ['deriveKey'],
-  );
-  return globalThis.crypto.subtle.deriveKey(
-    {
-      name: 'HKDF',
-      hash: 'SHA-256',
-      salt: new Uint8Array(0),
-      info: KEY_INFO,
-    },
-    material,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
-  );
-}
-
-async function seal(value: unknown, key: CryptoKey): Promise<number[]> {
-  return Array.from(await sealPairingPayload(utf8Encode(JSON.stringify(value)), key));
-}
-
-/** What a sealed message says, or null when it wasn't sealed with this code */
-async function unseal<T>(message: NetworkMessage, key: CryptoKey): Promise<T | null> {
-  if (!Array.isArray(message.payload)) return null;
-  try {
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- each caller checks the fields it reads
-    return JSON.parse(utf8Decode(await openPairingPayload(new Uint8Array(message.payload), key))) as T;
-  } catch {
-    return null;
-  }
-}
-
 interface LinkNetwork {
   /** Relays to meet on. The app's and the terminal's must share one. */
   readonly relays: ReadonlyArray<string>;
@@ -132,9 +72,18 @@ interface LinkNetwork {
   readonly transport?: (did: string) => PeerTransport;
 }
 
-function meet(network: LinkNetwork, room: string, did: string): NetworkManager {
-  if (network.transport) return createNetworkManager({ did, createTransport: () => network.transport!(did) });
-  return createMesh({ relays: network.relays, did, introductions: false }).join(room);
+/** The room and key for a code, met on the relays (or the test transport) */
+function meet(network: LinkNetwork, secret: Uint8Array, did: string) {
+  return sealedRoom({
+    prefix: ROOM_PREFIX,
+    info: KEY_INFO,
+    secret,
+    did,
+    join: (room): NetworkManager =>
+      network.transport
+        ? createNetworkManager({ did, createTransport: () => network.transport!(did) })
+        : createMesh({ relays: network.relays, did, introductions: false }).join(room),
+  });
 }
 
 // ─── The app's side ──────────────────────────────────────────────────
@@ -170,61 +119,46 @@ export async function offerAgentLink(
   if (network.relays.length === 0 && !network.transport)
     throw new Error('Connecting an agent needs a relay, and none is configured.');
   const code = newAgentCode();
-  const secret = readAgentCode(code);
-  const key = await linkKey(secret);
   // A name for this end of the link, and nothing more: it signs nothing.
-  const provider = createP256Provider();
-  const did = publicKeyToDid(
-    await provider.exportPublicKey((await provider.generateKeyPair()).publicKey),
-    P256_MULTICODEC,
-  );
-  const net = meet(network, await linkRoom(secret), did);
+  const did = await didOf((await createP256Provider().generateKeyPair()).publicKey);
+  const room = await meet(network, readAgentCode(code), did);
+  const { net } = room;
 
   let asked: { peer: string; agent: AgentAsking } | null = null;
-  let over = false;
-  const finish = (stage: AgentLinkStage) => {
-    if (over) return;
-    over = true;
-    onStage(stage);
-    globalThis.setTimeout(() => net.disconnect(), 500);
-  };
+  const finish = (stage: AgentLinkStage) => room.finish(() => onStage(stage));
 
   net.on('message', (message: NetworkMessage) => {
-    if (over) return;
+    if (room.isSettled()) return;
     void (async () => {
       if (message.type === ASK && !asked) {
-        const said = await unseal<{ did?: unknown; name?: unknown }>(message, key);
+        const said = await room.open(message);
         // Not sealed with this code: someone else in the room. Ignored.
-        if (!said || typeof said.did !== 'string' || !said.did.startsWith('did:key:')) return;
+        if (!isObject(said) || typeof said.did !== 'string' || !said.did.startsWith('did:key:')) return;
         const name =
           typeof said.name === 'string' && said.name.trim()
             ? said.name.trim().slice(0, MAX_NAME)
             : 'An agent';
         const agent = { did: said.did, name };
-        asked = { peer: message.from, agent };
+        const peer = message.from;
+        asked = { peer, agent };
         // So the terminal knows the code was right, and the person is deciding.
-        net.send(message.from, { type: HEARD, from: did, payload: await seal({ heard: true }, key) });
+        await room.send(peer, HEARD, { heard: true });
         onStage({
           kind: 'asking',
           agent,
           allow: async (grant) => {
             if (parseUCAN(grant.token).payload.aud !== agent.did)
               throw new Error('That note is for a different key.');
-            net.send(asked!.peer, {
-              type: ANSWER,
-              from: did,
-              payload: await seal({ grant } satisfies Answer, key),
-            });
+            await room.send(peer, ANSWER, { grant } satisfies Answer);
           },
           deny: (reason = 'The person said no.') => {
-            void seal({ denied: reason } satisfies Answer, key).then((payload) => {
-              net.send(asked!.peer, { type: ANSWER, from: did, payload });
-              finish({ kind: 'failed', reason: 'You said no. Make a new code to try again.' });
-            });
+            void room
+              .send(peer, ANSWER, { denied: reason } satisfies Answer)
+              .then(() => finish({ kind: 'failed', reason: 'You said no. Make a new code to try again.' }));
           },
         });
       } else if (message.type === DONE && asked && message.from === asked.peer) {
-        if (await unseal(message, key)) finish({ kind: 'connected', agent: asked.agent });
+        if (await room.open(message)) finish({ kind: 'connected', agent: asked.agent });
       }
     })();
   });
@@ -234,7 +168,7 @@ export async function offerAgentLink(
   return {
     code,
     stop: () => {
-      over = true;
+      room.finish();
       net.disconnect();
     },
   };
@@ -248,14 +182,7 @@ export async function offerAgentLink(
  * @throws When it does not check out
  */
 export async function checkAgentGrant(grant: Grant, audience: string): Promise<void> {
-  if (!grant || grant.v !== 1 || typeof grant.token !== 'string' || typeof grant.did !== 'string') {
-    throw new Error('The app sent something that is not a grant.');
-  }
-  const verified = await verifyUCAN(grant.token, createP256Provider());
-  if (!verified.valid) throw new Error(`The note does not check out: ${verified.reason ?? 'invalid'}`);
-  const { payload } = parseUCAN(grant.token);
-  if (payload.aud !== audience) throw new Error('The note was made out to a different key.');
-  if (payload.iss !== grant.did) throw new Error('The note was not signed by the account it names.');
+  await checkGrant(grant, audience);
   if (!isAgentNote(grant.token)) throw new Error("The note is not an agent's. Update your account home.");
 }
 
@@ -279,67 +206,54 @@ export async function acceptAgentLink(params: {
   /** How long the person has to decide. Default 10 minutes. */
   readonly decideTimeoutMs?: number;
 }): Promise<Grant> {
-  const secret = readAgentCode(params.code);
-  const key = await linkKey(secret);
-  const net = meet(params.network, await linkRoom(secret), params.did);
-
+  const room = await meet(params.network, readAgentCode(params.code), params.did);
   return new Promise<Grant>((resolve, reject) => {
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const wait = (ms: number, reason: string) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => finish(() => reject(new Error(reason))), ms);
-    };
-    const finish = (done: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      // A moment for the last message to leave.
-      setTimeout(() => net.disconnect(), 500);
-      done();
-    };
+    const settle = (done: () => void) => room.finish(done);
+    const failWith = (reason: string) => settle(() => reject(new Error(reason)));
 
-    net.on('peer-connected', (peer: PeerInfo) => {
-      void seal({ did: params.did, name: params.name.slice(0, MAX_NAME) }, key).then((payload) => {
-        net.send(peer.did, { type: ASK, from: params.did, payload });
-      });
+    room.net.on('peer-connected', (peer: PeerInfo) => {
+      void room.send(peer.did, ASK, { did: params.did, name: params.name.slice(0, MAX_NAME) });
     });
 
     let heard = false;
-    net.on('message', (message: NetworkMessage) => {
+    room.net.on('message', (message: NetworkMessage) => {
       void (async () => {
-        if (settled) return;
+        if (room.isSettled()) return;
         // Once the app has the question, the person gets longer to answer it.
-        if (message.type === HEARD && !heard && (await unseal(message, key))) {
+        if (message.type === HEARD && !heard && (await room.open(message))) {
           heard = true;
           params.onWaiting?.();
-          wait(
-            params.decideTimeoutMs ?? 10 * 60_000,
-            'Nobody answered in the app. Make a new code and try again.',
+          room.wait(params.decideTimeoutMs ?? 10 * 60_000, () =>
+            reject(new Error('Nobody answered in the app. Make a new code and try again.')),
           );
           return;
         }
         if (message.type !== ANSWER) return;
-        const answer = await unseal<Answer & { grant?: Grant; denied?: string }>(message, key);
-        if (!answer) return;
+        const answer = await room.open(message);
+        if (!isObject(answer)) return;
         if (typeof answer.denied === 'string') {
-          finish(() => reject(new Error(answer.denied)));
+          failWith(answer.denied);
           return;
         }
         try {
-          await checkAgentGrant(answer.grant!, params.did);
-          net.send(message.from, { type: DONE, from: params.did, payload: await seal({ ok: true }, key) });
-          finish(() => resolve(answer.grant!));
+          // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checkAgentGrant checks it
+          const grant = answer.grant as Grant;
+          await checkAgentGrant(grant, params.did);
+          await room.send(message.from, DONE, { ok: true });
+          settle(() => resolve(grant));
         } catch (error) {
-          finish(() => reject(error instanceof Error ? error : new Error(String(error))));
+          settle(() => reject(error instanceof Error ? error : new Error(String(error))));
         }
       })();
     });
 
-    wait(
-      params.findTimeoutMs ?? 60_000,
-      'The app did not answer. Check the “Connect an agent” window is still open, or make a new code there.',
+    room.wait(params.findTimeoutMs ?? 60_000, () =>
+      reject(
+        new Error(
+          'The app did not answer. Check the “Connect an agent” window is still open, or make a new code there.',
+        ),
+      ),
     );
-    net.connect().catch(() => finish(() => reject(new Error('Could not reach the relay.'))));
+    room.net.connect().catch(() => failWith('Could not reach the relay.'));
   });
 }

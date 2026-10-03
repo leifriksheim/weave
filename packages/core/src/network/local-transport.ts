@@ -1,5 +1,4 @@
 /**
- * @module network/local-transport
  * Peers in one process, linked directly — no relay, no socket.
  *
  * A carrier keeps a space twice: in its own database, and in the person's pod

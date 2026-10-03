@@ -15,6 +15,7 @@ import { ago } from '../derive/time';
 import { Avatar } from '@weave/app-shared/Avatar';
 import { Modal } from '@weave/app-shared/Modal';
 import { styles, palette } from '../styles';
+import { message, useAction, useCopy } from '@weave/app-shared/action';
 
 /** How often to look in the doors' mailboxes: knocks wait on relays, which tell nobody */
 const KNOCK_POLL_MS = 30_000;
@@ -22,14 +23,7 @@ const KNOCK_POLL_MS = 30_000;
 /** Nobody's profile: names here come from the contact list, or the tail of an identity */
 const nobody = peopleFrom([]);
 
-/**
- * People: your contacts, who is asking to be one, and your doors.
- *
- * Every contact is a private space for two. Someone who shares a space with
- * you asks there (a sealed `std.contact-request` only you can open); someone
- * who doesn't knocks on a door whose link you gave them. Either way, accepting
- * joins the space for two they made.
- */
+/** People: your contacts (each a private space for two), who is asking to be one, and your doors. */
 export function ContactsView({
   spaces,
   onOpen,
@@ -43,22 +37,17 @@ export function ContactsView({
   const [knocks, setKnocks] = useState<ReadonlyArray<KnockView>>([]);
   const [sent, setSent] = useState<ReadonlyArray<SentKnockView>>([]);
   const [doors, setDoors] = useState<ReadonlyArray<DoorView>>([]);
-  const [error, setError] = useState<string | null>(null);
+  const { run, error } = useAction();
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((n) => n + 1), []);
 
   /** Runs an action, shows what went wrong, and loads everything again */
   const act = useCallback(
     async (action: () => Promise<unknown>) => {
-      setError(null);
-      try {
-        await action();
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
-      }
+      await run(action);
       reload();
     },
-    [reload],
+    [run, reload],
   );
 
   // Requests are records in the spaces you share, so a change in any of them may bring one.
@@ -422,13 +411,11 @@ function Doors({
   const node = useNode();
   const [opening, setOpening] = useState(false);
   const [knocking, setKnocking] = useState(false);
-  const [copied, setCopied] = useState<string | null>(null);
-
+  const { copied, copy: copyText } = useCopy();
+  const [last, setLast] = useState<string | null>(null);
   const copy = (door: DoorView) => {
-    void globalThis.navigator.clipboard?.writeText(doorLink(door.code)).then(() => {
-      setCopied(door.id);
-      setTimeout(() => setCopied((id) => (id === door.id ? null : id)), 1500);
-    });
+    setLast(door.id);
+    copyText(doorLink(door.code));
   };
 
   return (
@@ -450,7 +437,7 @@ function Doors({
                 </p>
               </div>
               <button onClick={() => copy(door)} data-variant="quiet" style={styles.smallButton}>
-                {copied === door.id ? 'Copied' : 'Copy link'}
+                {copied && last === door.id ? 'Copied' : 'Copy link'}
               </button>
               <button
                 onClick={() => void act(() => node.doors.clear(door.id))}
@@ -568,7 +555,7 @@ function KnockDialog({
     try {
       name = parseDoorCode(code).name ?? null;
     } catch (caught) {
-      problem = caught instanceof Error ? caught.message : String(caught);
+      problem = message(caught);
     }
   }
   return (

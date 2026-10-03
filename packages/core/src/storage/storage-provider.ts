@@ -1,5 +1,4 @@
 /**
- * @module storage-provider
  * A space's store: record versions, and plain entries saying which is which.
  *
  * ```
@@ -76,8 +75,6 @@ export interface StorageProvider {
   fingerprint(): Promise<string>;
   /** Forgets what was read into memory: another writer changed the store underneath. */
   invalidate(): void;
-  /** Get the underlying storage adapter. */
-  getAdapter(): StorageAdapter;
   /** Close the storage adapter. */
   close(): Promise<void>;
 }
@@ -131,10 +128,7 @@ interface Entries {
   drop(version: Expression): void;
 }
 
-/**
- * Creates a StorageProvider wrapping an adapter.
- * @param adapter The initialized storage adapter.
- */
+/** Creates a StorageProvider wrapping an adapter. */
 export function createStorageProvider(adapter: StorageAdapter): StorageProvider {
   // Every change reads the current version, then writes. Two of those
   // interleaved would each decide against the same current version, and one
@@ -515,8 +509,8 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
     },
 
     async queryExpressions(collection: string): Promise<Expression[]> {
-      // The index holds every version kept, not only current ones; the entries say which is current.
-      const held = await adapter.queryExpressions(collection, Infinity);
+      // `i/` names every version kept, not only current ones; the entries say which is current.
+      const held = await load((await loadKept()).get(collection)?.keys() ?? []);
       const current = await Promise.all(held.map(async (v) => (await readId(currentKey(v.key))) === v.id));
       return held.filter((_, i) => current[i]);
     },
@@ -541,10 +535,6 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
       pointers.clear();
       bodies.clear();
       landed++;
-    },
-
-    getAdapter(): StorageAdapter {
-      return adapter;
     },
 
     async close(): Promise<void> {

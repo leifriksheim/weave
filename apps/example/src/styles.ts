@@ -396,3 +396,40 @@ export const variants = {
   quiet: quietButton,
   danger: { ...quietButton, color: accent.danger },
 } satisfies Record<string, CSSProperties>;
+
+const line = `1px solid ${surface.line}`;
+
+/** Pieces many views share: a pill, a table's cells, a bordered card, a clipped line, a column. */
+export const ui = {
+  chip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    height: 28,
+    padding: '0 10px',
+    borderRadius: radius.pill,
+    // Longhands, so a chip that is on can change the colour alone.
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: surface.line,
+    background: surface.card,
+    color: ink.body,
+    fontSize: 12.5,
+    fontWeight: 500,
+    whiteSpace: 'nowrap',
+  },
+  chipOn: { background: ink.strong, color: '#fff', borderColor: ink.strong },
+  th: {
+    textAlign: 'left',
+    padding: '10px 14px',
+    borderBottom: line,
+    color: ink.muted,
+    fontWeight: 500,
+    fontSize: 12,
+    background: surface.sunken,
+  },
+  td: { padding: '10px 14px', borderBottom: line, color: ink.body },
+  card: { border: line, borderRadius: 10, background: surface.card },
+  ellipsis: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  stack: { display: 'flex', flexDirection: 'column' },
+} satisfies Record<string, CSSProperties>;

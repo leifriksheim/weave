@@ -13,16 +13,9 @@
  * </script>
  * ```
  *
- * Or hand it a flow you made yourself, to share it with the rest of the page:
- * `element.auth = createWeaveAuth({ … })`.
- *
- * It draws into its own light DOM, not a shadow root, on purpose: password
- * managers find and fill forms in the page far more reliably than forms inside
- * a shadow root, and the everyday password living in a password manager is
- * much of the point. Its styles are scoped to the element instead.
- *
- * It fills whatever box it is put in — a page, a modal, a panel — and draws
- * nothing once signed in; the host decides what happens then.
+ * Or hand it a flow you made yourself: `element.auth = createWeaveAuth({ … })`.
+ * It draws into its light DOM, not a shadow root, because password managers
+ * fill forms there far more reliably; its styles are scoped to the element.
  */
 import {
   createWeaveAuth,
@@ -143,6 +136,56 @@ function option(
 
 function link(text: string, onclick: () => void, disabled = false): HTMLElement {
   return h('button', { type: 'button', class: 'wa-link', onclick, disabled }, text);
+}
+
+function links(...children: Child[]): HTMLElement {
+  return h('div', { class: 'wa-links' }, ...children);
+}
+
+/** A step: the mark, its title, and what goes under it */
+function card(title: string, ...body: Child[]): HTMLElement {
+  return h('div', { class: 'wa-card' }, wordmark(), h('h1', { class: 'wa-title' }, title), ...body);
+}
+
+function subtitle(...text: Child[]): HTMLElement {
+  return h('p', { class: 'wa-subtitle' }, ...text);
+}
+
+/** A form that stays on the page when submitted */
+function form(onSubmit: () => void, props: Record<string, unknown>, ...children: Child[]): HTMLElement {
+  return h(
+    'form',
+    {
+      class: 'wa-form',
+      ...props,
+      onsubmit: (event: Event) => {
+        event.preventDefault();
+        onSubmit();
+      },
+    },
+    ...children,
+  );
+}
+
+function submit(busy: boolean, label: string, busyLabel: string): HTMLElement {
+  return h('button', { type: 'submit', class: 'wa-button', disabled: busy }, busy ? busyLabel : label);
+}
+
+/**
+ * The username a password manager files a credential under: off-screen but
+ * deliberately not `display: none`, which managers do not count as a username.
+ */
+function offscreenUsername(value: string, readonly: boolean): HTMLInputElement {
+  return h('input', {
+    type: 'text',
+    name: 'username',
+    autocomplete: 'username',
+    value,
+    readonly,
+    class: 'wa-offscreen',
+    tabindex: '-1',
+    'aria-hidden': 'true',
+  });
 }
 
 /** Hands the page a text file to save. */
@@ -339,16 +382,9 @@ export class WeaveAuthElement extends Base {
 
   #welcome(state: AuthState): HTMLElement {
     const auth = this.auth;
-    return h(
-      'div',
-      { class: 'wa-card' },
-      wordmark(),
-      h('h1', { class: 'wa-title' }, 'Welcome to Weave'),
-      h(
-        'p',
-        { class: 'wa-subtitle' },
-        'One account for every Weave app. Your data stays with you, not on a server.',
-      ),
+    return card(
+      'Welcome to Weave',
+      subtitle('One account for every Weave app. Your data stays with you, not on a server.'),
       h(
         'div',
         { class: 'wa-options' },
@@ -377,12 +413,9 @@ export class WeaveAuthElement extends Base {
    */
   #existing(state: AuthState): HTMLElement {
     const auth = this.auth;
-    return h(
-      'div',
-      { class: 'wa-card' },
-      wordmark(),
-      h('h1', { class: 'wa-title' }, 'Find your account'),
-      h('p', { class: 'wa-subtitle' }, 'Any of these gets you in.'),
+    return card(
+      'Find your account',
+      subtitle('Any of these gets you in.'),
       h(
         'div',
         { class: 'wa-options' },
@@ -420,9 +453,7 @@ export class WeaveAuthElement extends Base {
         ),
       ),
       errorBox(state.error),
-      h(
-        'div',
-        { class: 'wa-links' },
+      links(
         link('Back', () => (state.accounts.length > 0 ? auth.showSignIn() : auth.showWelcome()), state.busy),
         link('Create a new account instead', () => auth.startCreating(), state.busy),
       ),
@@ -433,28 +464,13 @@ export class WeaveAuthElement extends Base {
   // ─── Choosing an account, and getting in ───────────────────────────
 
   /**
-   * The recovery-code form.
-   *
-   * Kept a password form with an off-screen username, because before
-   * passwords existed the recovery code *was* this site's login and many
-   * people's password managers hold it that way. The username field is
-   * off-screen, but deliberately not `display: none` — a field taken out of the
-   * layout is not counted as a username, while one merely moved out of view is
-   * filled normally. And writable: a manager fills the whole credential at
-   * once, so a read-only username keeps showing the account that was clicked
-   * while the code quietly belongs to another. Letting it be overwritten is
-   * what makes the mismatch detectable.
+   * The recovery-code form. A password form, because before passwords the
+   * recovery code was this site's login and many managers hold it that way.
+   * Its username is writable: a manager fills the whole credential at once,
+   * and letting it overwrite the name is what makes a mismatch detectable.
    */
   #codeForm(state: AuthState, selected: AccountSummary | null): HTMLElement[] {
-    const username = h('input', {
-      type: 'text',
-      name: 'username',
-      autocomplete: 'username',
-      value: accountCredentialName(selected?.name ?? 'My account'),
-      class: 'wa-offscreen',
-      tabindex: '-1',
-      'aria-hidden': 'true',
-    });
+    const username = offscreenUsername(accountCredentialName(selected?.name ?? 'My account'), false);
 
     const code = this.#input('code', {
       type: 'password',
@@ -478,23 +494,15 @@ export class WeaveAuthElement extends Base {
     const wrong =
       selected !== null && this.#filledAs !== '' && this.#filledAs !== accountCredentialName(selected.name);
     return [
-      h(
-        'form',
-        {
-          class: 'wa-form',
-          onsubmit: (event: Event) => {
-            event.preventDefault();
-            const value = code.value.trim();
-            if (value) void this.auth.signInWithCode(value);
-          },
+      form(
+        () => {
+          const value = code.value.trim();
+          if (value) void this.auth.signInWithCode(value);
         },
+        {},
         username,
         code,
-        h(
-          'button',
-          { type: 'submit', class: 'wa-button', disabled: state.busy },
-          state.busy ? 'Opening…' : 'Continue',
-        ),
+        submit(state.busy, 'Continue', 'Opening…'),
       ),
       wrong
         ? h(
@@ -522,31 +530,14 @@ export class WeaveAuthElement extends Base {
       'aria-label': 'Password',
       disabled: state.busy,
     });
-    return h(
-      'form',
-      {
-        class: 'wa-form',
-        onsubmit: (event: Event) => {
-          event.preventDefault();
-          if (password.value) void this.auth.signInWithPassword(password.value);
-        },
+    return form(
+      () => {
+        if (password.value) void this.auth.signInWithPassword(password.value);
       },
-      h('input', {
-        type: 'text',
-        name: 'username',
-        autocomplete: 'username',
-        value: accountCredentialName(account.name),
-        readonly: true,
-        class: 'wa-offscreen',
-        tabindex: '-1',
-        'aria-hidden': 'true',
-      }),
+      {},
+      offscreenUsername(accountCredentialName(account.name), true),
       password,
-      h(
-        'button',
-        { type: 'submit', class: 'wa-button', disabled: state.busy },
-        state.busy ? 'Signing in…' : 'Sign in',
-      ),
+      submit(state.busy, 'Sign in', 'Signing in…'),
     );
   }
 
@@ -583,13 +574,7 @@ export class WeaveAuthElement extends Base {
         if (entry.hasPassword) body.push(this.#passwordForm(state, account));
 
         if (hasShortcut || entry.hasPassword) {
-          body.push(
-            h(
-              'div',
-              { class: 'wa-links' },
-              link('Use my recovery code', () => auth.showRestore(), state.busy),
-            ),
-          );
+          body.push(links(link('Use my recovery code', () => auth.showRestore(), state.busy)));
         } else {
           body.push(
             h(
@@ -633,21 +618,12 @@ export class WeaveAuthElement extends Base {
       );
     });
 
-    return h(
-      'div',
-      { class: 'wa-card' },
-      wordmark(),
-      h('h1', { class: 'wa-title' }, 'Welcome back'),
-      h(
-        'p',
-        { class: 'wa-subtitle' },
-        accounts.length > 0 ? 'Choose your account.' : 'There are no accounts here yet.',
-      ),
+    return card(
+      'Welcome back',
+      subtitle(accounts.length > 0 ? 'Choose your account.' : 'There are no accounts here yet.'),
       ...rows,
       errorBox(state.error),
-      h(
-        'div',
-        { class: 'wa-links' },
+      links(
         link('Another account', () => auth.showExisting(), state.busy),
         link('Create a new account', () => auth.startCreating(), state.busy),
       ),
@@ -661,9 +637,7 @@ export class WeaveAuthElement extends Base {
           )
         : null,
       state.folderAvailable
-        ? h(
-            'div',
-            { class: 'wa-links' },
+        ? links(
             link(
               place?.kind === 'folder' ? 'Open a different pod' : 'Open a pod',
               () => void auth.choosePod(),
@@ -683,22 +657,15 @@ export class WeaveAuthElement extends Base {
     const selected = state.accounts.find((account) => account.id === state.selectedId) ?? null;
     // From the account list it restores that account; from "I already have one", any.
     const forSelected = selected !== null && state.accounts.length > 0 && state.entry !== null;
-    return h(
-      'div',
-      { class: 'wa-card' },
-      wordmark(),
-      h('h1', { class: 'wa-title' }, 'Use your recovery code'),
-      h(
-        'p',
-        { class: 'wa-subtitle' },
+    return card(
+      'Use your recovery code',
+      subtitle(
         forSelected ? `For ${selected.name}. ` : '',
         'The 26-character code you kept when you made the account.',
       ),
       ...this.#codeForm(state, forSelected ? selected : null),
       errorBox(state.error),
-      h(
-        'div',
-        { class: 'wa-links' },
+      links(
         link('Back', () => (state.accounts.length > 0 ? auth.showSignIn() : auth.showExisting()), state.busy),
       ),
       h(
@@ -720,27 +687,16 @@ export class WeaveAuthElement extends Base {
       autofocus: true,
       disabled: state.busy,
     });
-    return h(
-      'div',
-      { class: 'wa-card' },
-      wordmark(),
-      h('h1', { class: 'wa-title' }, 'Create your account'),
-      h('p', { class: 'wa-subtitle' }, 'What should apps call you? You can change it later.'),
-      h(
-        'form',
-        {
-          class: 'wa-form',
-          onsubmit: (event: Event) => {
-            event.preventDefault();
-            if (name.value.trim()) void auth.createAccount(name.value.trim());
-          },
+    return card(
+      'Create your account',
+      subtitle('What should apps call you? You can change it later.'),
+      form(
+        () => {
+          if (name.value.trim()) void auth.createAccount(name.value.trim());
         },
+        {},
         name,
-        h(
-          'button',
-          { type: 'submit', class: 'wa-button', disabled: state.busy },
-          state.busy ? 'Creating…' : 'Continue',
-        ),
+        submit(state.busy, 'Continue', 'Creating…'),
       ),
       h(
         'p',
@@ -748,11 +704,7 @@ export class WeaveAuthElement extends Base {
         'Next: a recovery code to keep safe, then a passkey or password for signing in.',
       ),
       errorBox(state.error),
-      h(
-        'div',
-        { class: 'wa-links' },
-        link('I already have an account', () => auth.showExisting(), state.busy),
-      ),
+      links(link('I already have an account', () => auth.showExisting(), state.busy)),
       this.#podLine(state),
     );
   }
@@ -770,11 +722,8 @@ export class WeaveAuthElement extends Base {
     const code = state.freshCode ?? '';
     const account = state.session?.account;
     const restored = state.setup === 'restored';
-    return h(
-      'div',
-      { class: 'wa-card' },
-      wordmark(),
-      h('h1', { class: 'wa-title' }, restored ? 'Keep your recovery code safe' : 'Your recovery code'),
+    return card(
+      restored ? 'Keep your recovery code safe' : 'Your recovery code',
       h(
         'p',
         { class: 'wa-hint' },
@@ -853,7 +802,7 @@ export class WeaveAuthElement extends Base {
     const passkeys = typeof globalThis.PublicKeyCredential !== 'undefined';
 
     const choosing = this.#choosingPassword || !passkeys;
-    const form = () => {
+    const passwordForm = () => {
       const password = this.#input('new-password', {
         type: 'password',
         name: 'password',
@@ -872,23 +821,18 @@ export class WeaveAuthElement extends Base {
         'aria-label': 'Confirm password',
         disabled: state.busy,
       });
-      return h(
-        'form',
-        {
-          class: 'wa-form',
-          style: passkeys ? 'margin-top:12px' : '',
-          onsubmit: (event: Event) => {
-            event.preventDefault();
-            this.#mismatch = password.value !== confirm.value;
-            if (this.#mismatch) {
-              this.#redraw();
-              return;
-            }
-            const chosen = password.value;
-            const filedAs = accountCredentialName(account?.name ?? 'My account');
-            void auth.setPassword(chosen).then((ok) => (ok ? offerToSave(filedAs, chosen, filedAs) : false));
-          },
+      return form(
+        () => {
+          this.#mismatch = password.value !== confirm.value;
+          if (this.#mismatch) {
+            this.#redraw();
+            return;
+          }
+          const chosen = password.value;
+          const filedAs = accountCredentialName(account?.name ?? 'My account');
+          void auth.setPassword(chosen).then((ok) => (ok ? offerToSave(filedAs, chosen, filedAs) : false));
         },
+        { style: passkeys ? 'margin-top:12px' : '' },
         // A visible username is what makes a manager file the password under the account's name.
         h('input', {
           type: 'text',
@@ -901,11 +845,7 @@ export class WeaveAuthElement extends Base {
         password,
         confirm,
         this.#mismatch ? h('p', { class: 'wa-error' }, 'Those two do not match.') : null,
-        h(
-          'button',
-          { type: 'submit', class: 'wa-button', disabled: state.busy },
-          state.busy ? 'Saving…' : 'Use this password',
-        ),
+        submit(state.busy, 'Use this password', 'Saving…'),
         h(
           'p',
           { class: 'wa-small', style: 'margin-top:0' },
@@ -914,14 +854,9 @@ export class WeaveAuthElement extends Base {
       );
     };
 
-    return h(
-      'div',
-      { class: 'wa-card' },
-      wordmark(),
-      h('h1', { class: 'wa-title' }, 'How do you want to sign in?'),
-      h(
-        'p',
-        { class: 'wa-subtitle' },
+    return card(
+      'How do you want to sign in?',
+      subtitle(
         'This is what you will use every day.',
         info(
           'Where it works',
@@ -952,7 +887,7 @@ export class WeaveAuthElement extends Base {
             )
           : null,
       ),
-      choosing ? form() : null,
+      choosing ? passwordForm() : null,
       state.setup === 'paired' && state.pairingStage
         ? h(
             'p',
@@ -970,11 +905,8 @@ export class WeaveAuthElement extends Base {
   /** Offered once, at the end of making an account in a browser that can open a folder. */
   #pod(state: AuthState): HTMLElement {
     const auth = this.auth;
-    return h(
-      'div',
-      { class: 'wa-card' },
-      wordmark(),
-      h('h1', { class: 'wa-title' }, 'Keep your data in a folder?'),
+    return card(
+      'Keep your data in a folder?',
       h(
         'p',
         { class: 'wa-hint' },
@@ -991,11 +923,7 @@ export class WeaveAuthElement extends Base {
         ),
       ),
       errorBox(state.error),
-      h(
-        'div',
-        { class: 'wa-links' },
-        link('Not now — keep it in this browser', () => auth.finishSetup(), state.busy),
-      ),
+      links(link('Not now — keep it in this browser', () => auth.finishSetup(), state.busy)),
       h('p', { class: 'wa-small' }, 'You can move it to a pod any time from your account page.'),
     );
   }
@@ -1010,12 +938,9 @@ export class WeaveAuthElement extends Base {
    */
   #pair(state: AuthState): HTMLElement {
     const auth = this.auth;
-    return h(
-      'div',
-      { class: 'wa-card' },
-      wordmark(),
-      h('h1', { class: 'wa-title' }, 'Add this phone'),
-      h('p', { class: 'wa-subtitle' }, 'You scanned a code from your computer.'),
+    return card(
+      'Add this phone',
+      subtitle('You scanned a code from your computer.'),
       h(
         'p',
         { class: 'wa-hint' },
@@ -1047,11 +972,7 @@ export class WeaveAuthElement extends Base {
         : null,
       errorBox(state.error),
       h('p', { class: 'wa-small' }, 'Keep the code showing until this finishes.'),
-      h(
-        'div',
-        { class: 'wa-links' },
-        link('Not now', () => auth.dismissPairing(), state.busy),
-      ),
+      links(link('Not now', () => auth.dismissPairing(), state.busy)),
     );
   }
 }

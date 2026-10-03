@@ -20,7 +20,7 @@
 
 import type { StorageAdapter, BatchOp } from '../types.js';
 import { concatBytes } from '../utils/encoding.js';
-import { bufferSource } from '../utils/guards.js';
+import { aesOpen, aesSeal, NONCE_BYTES } from '../identity/aes.js';
 
 /**
  * Marks a value this module wrote.
@@ -30,7 +30,6 @@ import { bufferSource } from '../utils/guards.js';
  * every genuine key mismatch into silently wrong data.
  */
 const MAGIC = new Uint8Array([0x77, 0x65, 0x61, 0x76, 0x65, 0x65, 0x02, 0x00]); // "weavee\x02\x00" — Weave, encrypted, v2
-const IV_BYTES = 12;
 
 /**
  * What gets sealed by default: every entry of the space registry — each
@@ -67,7 +66,7 @@ export interface EncryptedAdapterOptions {
 
 /** Whether these bytes were written sealed. */
 function isSealed(bytes: Uint8Array): boolean {
-  if (bytes.length < MAGIC.length + IV_BYTES) return false;
+  if (bytes.length < MAGIC.length + NONCE_BYTES) return false;
   return MAGIC.every((byte, index) => bytes[index] === byte);
 }
 
@@ -107,7 +106,7 @@ export function createEncryptedAdapter(
   const caughtUp = (storageKey: string): Promise<void> | null => {
     if (!later.some((prefix) => storageKey.startsWith(prefix))) return null;
     catchingUp ??= (async () => {
-      if (await inner.has(SEALED_LATER_DONE)) return;
+      if (await inner.get(SEALED_LATER_DONE)) return;
       for (const prefix of later) {
         for (const entry of await inner.list(prefix)) {
           const bytes = await inner.get(entry);
@@ -123,26 +122,12 @@ export function createEncryptedAdapter(
   };
 
   async function seal(storageKey: string, value: Uint8Array): Promise<Uint8Array> {
-    const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES));
-    const ciphertext = await globalThis.crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv, additionalData: bound(storageKey) },
-      key,
-      bufferSource(value),
-    );
-    return concatBytes(MAGIC, iv, new Uint8Array(ciphertext));
+    return concatBytes(MAGIC, await aesSeal(key, value, bound(storageKey)));
   }
 
   async function unseal(storageKey: string, bytes: Uint8Array): Promise<Uint8Array> {
     if (!isSealed(bytes)) throw new Error(`${storageKey} should be sealed, and is not — refusing it`);
-
-    const iv = bytes.slice(MAGIC.length, MAGIC.length + IV_BYTES);
-    const ciphertext = bytes.slice(MAGIC.length + IV_BYTES);
-    const plain = await globalThis.crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv, additionalData: bound(storageKey) },
-      key,
-      ciphertext,
-    );
-    return new Uint8Array(plain);
+    return aesOpen(key, bytes.subarray(MAGIC.length), bound(storageKey));
   }
 
   return Object.freeze({
@@ -174,12 +159,9 @@ export function createEncryptedAdapter(
     // unchanged. A space id is a content hash and gives nothing away; its name
     // and its key live in the value, which is sealed.
     delete: (storageKey: string) => inner.delete(storageKey),
-    has: (storageKey: string) => inner.has(storageKey),
     list: (prefix?: string) => inner.list(prefix),
 
     // Expressions carry their own encryption where the space calls for it.
-    queryExpressions: (collection: string, limit?: number, cursor?: string) =>
-      inner.queryExpressions(collection, limit, cursor),
     putExpression: inner.putExpression.bind(inner),
     getExpression: (id: string) => inner.getExpression(id),
     deleteExpression: (id: string) => inner.deleteExpression(id),

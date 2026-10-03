@@ -8,7 +8,8 @@ import { Proposals } from './Proposals';
 import { Delegations } from './Delegations';
 import { People } from './People';
 import { ASSEMBLY, topic as topicCollection } from './schema';
-import { Problem, TopicChip, useAction } from './ui';
+import { Problem, TopicChip } from './ui';
+import { useAction, useCopy } from '@weave/app-shared/action';
 import { useDuties } from './duties';
 import { palette } from './styles';
 import { CommunitySetup } from '@weave/app-shared/CommunitySetup';
@@ -240,7 +241,7 @@ function Waiting() {
 function Invite({ a, onClose }: { a: Assembly; onClose: () => void }) {
   const node = useNode();
   const [link, setLink] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopy(1600);
   const action = useAction();
   const make = () =>
     void action.run(async () => {
@@ -263,15 +264,7 @@ function Invite({ a, onClose }: { a: Assembly; onClose: () => void }) {
               onFocus={(event) => event.target.select()}
               aria-label="Invite link"
             />
-            <button
-              className="lq-btn"
-              onClick={() =>
-                void globalThis.navigator.clipboard.writeText(link).then(() => {
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1600);
-                })
-              }
-            >
+            <button className="lq-btn" onClick={() => copy(link)}>
               {copied ? 'Copied' : 'Copy'}
             </button>
           </div>

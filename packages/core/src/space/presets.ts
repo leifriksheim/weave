@@ -1,5 +1,4 @@
 /**
- * @module space/presets
  * Starting roles for a space — plain data, and nothing more.
  *
  * The protocol takes no position on what roles a space should have: it reads

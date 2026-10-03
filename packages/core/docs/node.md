@@ -486,7 +486,7 @@ leaves it the choice. Another implementation may pick other values and still
 meet this one.
 
 **Redialling a relay** (spec 04 §2). The client waits 1, 2, 4, 8, 16 s and
-then 30 s between attempts, each ±20% so peers that dropped together do not
+then 30 s between attempts, each ±25% so peers that dropped together do not
 return together, and never stops until `disconnect`. After a `4009` it emits
 `refused` and waits 10 s, doubling with each refusal in a row up to 60 s. It
 tries at once when the browser reports `online` or the page becomes visible
@@ -507,8 +507,9 @@ at most 8) by itself.
 
 **Always-on nodes** (spec 04 §5.2). `network.nodes` lists the node URLs to
 dial, one socket per node per space. After an unexpected close the client
-redials without limit, waiting `base/2 + random·base/2` where
-`base = min(1 s · 2ⁿ, 30 s)`; a deliberate close is never redialled. The
+redials without limit, waiting `min(1 s · 2ⁿ, 30 s)`, ±25%, like a relay
+(`backoff` in `packages/core/src/utils/backoff.ts`); a deliberate close is
+never redialled. The
 `/peer` endpoint waits 10 s for the hello (configurable).
 
 **In-process links** (spec 04 §5.4). `createLocalHub()` links every
@@ -564,7 +565,9 @@ grant ([spec 06 §2.5](https://github.com/leifriksheim/weave/blob/main/spec/06-n
 give an agent the contact key: with it, an agent could open contact requests
 and knocks on the account's doors ([doors.md](doors.md)).
 
-_Source: `packages/core/src/node/node.ts` (`asAgent`). Tests: `packages/core/tests/agents.test.ts` ("an agent acting for a person")._
+Which of these each method of the node is — passed through, held to the note's spaces, or refused — is one table, `API` in `packages/core/src/node/api.ts`; a new method does not type-check until it is decided there. The same table lists what `remoteNode` forwards.
+
+_Source: `packages/core/src/node/node.ts` (`asAgent`), `packages/core/src/node/api.ts` (`API`). Tests: `packages/core/tests/agents.test.ts` ("an agent acting for a person"), `packages/core/tests/remote.test.ts`._
 
 ## The app-side client
 
@@ -758,10 +761,12 @@ likes.
   managers find its forms). Attributes: `app-name`, `relays` and `nodes`
   (comma-separated). It fires `weave-session` (`detail: { session }`, `null` when
   signed out), bubbling and composed. A page can hand it its own flow with
-  `element.auth = createWeaveAuth(…)`.
+  `element.auth = createWeaveAuth(…)`. It sizes to its container, so it fits a
+  page, a modal or a side panel, and draws nothing once someone is in. Colours,
+  font and radius are custom properties (`--weave-accent`, `--weave-font`, …).
 - **React** (`@weaveprotocol/core/react`): `WeaveProvider`, `useWeave`,
   `useAuth`, `useSession`, `useConnection`, `useAccount`, `useNode`,
-  `useWeaveAuth`, `<WeaveAuth>`, `useQuery`, `useLive`, `useSpaces`,
+  `<WeaveAuth>`, `useQuery`, `useLive`, `useSpaces`,
   `useHoldSpace` (holds a space while mounted, releasing it a few seconds late),
   `useRecord`, `useLinked`, `useCollections`, `useProfiles`, `useAccess`,
   `useSpaceStatus`, `useCan`, `CallsProvider`, `useCalls`.

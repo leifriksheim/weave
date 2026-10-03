@@ -3,22 +3,16 @@
  * shared space. Each test is an attack found in a security audit, replayed
  * against the fix.
  */
-import { test, describe, afterEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createNode } from '../src/node/node.js';
-import type { P2PNode } from '../src/node/types.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { generateSeed } from '../src/identity/recovery-code.js';
-import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
-import { createSigner } from '../src/schema/signer.js';
-import { createExpression, type CreateExpressionParams } from '../src/schema/expression.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { SYNC_PROTOCOL_VERSION } from '../src/sync/sync-messages.js';
 import { nextVersion } from '../src/records/version.js';
-import type { Expression } from '../src/types.js';
-import { seenBy } from './helpers/as-member.js';
 import { joined } from './helpers/joined.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
@@ -30,57 +24,7 @@ import { contactPublicKey, deriveContactKeyBytes } from '../src/identity/contact
 import { profileKey } from '../src/node/space-runtime.js';
 import { contactRequest } from '../src/schemas/contacts.js';
 import { until } from './helpers/until.js';
-
-const open: P2PNode[] = [];
-afterEach(async () => {
-  await Promise.all(open.splice(0).map((node) => node.close()));
-});
-
-async function person(hub: FakeHub) {
-  const manager = createIdentityManager();
-  const me = await manager.fromSeed(generateSeed());
-  const stores = memoryStores();
-  const node = await createNode({
-    signer: createLocalRootSigner(me, manager.getProvider()),
-    stores,
-    watchIntervalMs: 0,
-    network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
-  });
-  open.push(node);
-  return { node, me, manager, stores };
-}
-type Person = Awaited<ReturnType<typeof person>>;
-
-const settle = (ms = 300) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** A version signed by a member by hand — whatever fields they like — and slipped into their own store. */
-async function forge(
-  who: Person,
-  space: string,
-  fields: Omit<CreateExpressionParams<unknown>, 'author' | 'space' | 'proof'>,
-): Promise<Expression> {
-  const provider = who.manager.getProvider();
-  const pair = await provider.generateKeyPair();
-  const keyDid = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
-  const ucan = await createLocalRootSigner(who.me, provider).delegate({
-    audience: keyDid,
-    capabilities: [{ with: `space:${space}`, can: 'expression/write' }],
-    expiration: Math.floor(Date.now() / 1000) + 3600,
-  });
-  const authored = await createSigner(provider).sign(
-    createExpression({
-      seen: await seenBy(who.node, space),
-      ...fields,
-      author: keyDid,
-      space,
-      proof: ucan.encoded,
-    }),
-    pair.privateKey,
-  );
-  const signed = authored;
-  await createStorageProvider(await who.stores(`spaces/${space}`)).addExpression(signed);
-  return signed;
-}
+import { forge, open, person, settle } from './helpers/person.js';
 
 /** Alice owns a shared space with a creator-only poll collection; Bob is a member. */
 async function setup() {

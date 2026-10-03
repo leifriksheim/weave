@@ -1,57 +1,14 @@
 /**
  * The signaling relay: a dumb introducer, no state worth stealing. Run on its
  * own by `signaling-server.mjs`, and inside every always-on node
- * (`packages/cli/src/serve.ts`), so both are the same relay.
- *
- * A peer holds one socket and joins rooms on it — each a hash of a space's id,
- * so the relay cannot tell which space a room is — and the relay passes
- * join/leave notices and WebRTC offers, answers and ICE candidates between
- * peers that share a room. It never sees expression data — that flows peer to
- * peer over WebRTC — and it cannot read a private space even if it wanted to.
- *
- *   client → { type: 'join', from: did, room }     client → { type: 'leave', room }
- *   relay  → { type: 'join' | 'leave', from: did, room }, to the others in the room
- *   either → { type: 'offer' | 'answer' | 'candidate', to: did, payload }
- *   client → { type: 'ice' }                       relay → { type: 'ice', payload: { servers, expiresAt } }
- *
- * A socket opened with `?room=<id>` is the older, one-room form: its `join`
- * names no room and means that one. Both kinds meet in the same rooms.
- *
- * Given TURN settings (`turnFromEnv`: TURN_SECRET and TURN_URLS), the relay
- * also hands out TURN passwords for a coturn server run with
- * `use-auth-secret` and the same secret: the "TURN REST API" scheme, where a
- * password is an HMAC of when it expires, so nothing is stored and nothing
- * needs revoking. They go to any socket that has joined a room, unprompted on
- * its first join and on request after, and last TURN_TTL_SECONDS (default 4
- * hours). The relay can't tell a Weave peer from anyone else, so every socket
- * from one address (one IPv6 /64) gets the same username, and a new one only
- * once half of its time is gone: asking again is free, and coturn's
- * `user-quota` caps each address instead of each second. What TURN may carry
- * in all is capped in coturn itself (`bps-capacity`, `max-bps`).
- *
- * **The mailbox.** A relay also holds sealed knocks for doors (see
- * `spec/07-doors.md`), so someone can ask to become your contact while
- * you are offline. It is the one thing a relay keeps, and it keeps as little
- * as it can: an opaque blob under an opaque topic, for a few weeks at most.
- *
- *   client → { type: 'drop', topic, blob, ttl? }     relay → { type: 'dropped', topic, id } | { type: 'refused', topic, reason }
- *   client → { type: 'fetch', topic, after?, watch? } relay → { type: 'mail', topic, items: [{ seq, id, at, blob }], more }
- *   client → { type: 'unwatch', topic }
- *   client → { type: 'challenge' }                    relay → { type: 'challenge', nonce }
- *   client → { type: 'purge', topic, sign, ids?, sig } relay → { type: 'purged', topic, count } | { type: 'refused', … }
- *
- * A topic is a hash of a door's signing key, and a blob is sealed to the
- * door's other key, so the relay learns neither whose door it is nor what was
- * said. Anyone may drop or fetch — what they'd fetch opens only for the
- * door's owner. Only the owner may purge: they show the signing key whose
- * hash is the topic, and sign the relay's one-time challenge with it. The
- * relay sees who drops and who fetches by address, as it sees any socket.
- * No `join` is needed, so a mailbox socket names no DID.
+ * (`packages/cli/src/serve.ts`), so both are the same relay. What it does is
+ * specified in spec/04-network.md §1 (rooms, messages, limits, TURN passwords,
+ * §1.1–1.7) and its mailbox for doors in spec/07-doors.md §5.
  *
  * It is public, so it assumes nobody is polite: every socket gets a size cap,
  * a message budget and a heartbeat, and each IP, room and the process as a
- * whole have a ceiling. Framing is left to the `ws` server the caller brings
- * — this file has no dependencies, so whatever runs it needs nothing else.
+ * whole a ceiling. Framing is the `ws` server the caller brings: this file has
+ * no dependencies.
  */
 
 import { createHash, createHmac, createPublicKey, randomBytes, verify } from 'node:crypto';

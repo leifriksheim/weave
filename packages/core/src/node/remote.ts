@@ -22,22 +22,8 @@ import { toJsonSchema } from '../schema/collection-def.js';
 import { previewInvite } from '../space/space-manager.js';
 import { isRecord } from '../utils/guards.js';
 import type { MessagePortLike } from '../utils/port.js';
-import type {
-  DefineCollection,
-  NodeAccount,
-  NodeCarriers,
-  NodeCollection,
-  NodeCollections,
-  NodeContacts,
-  NodeDirect,
-  NodeDoors,
-  NodeEvent,
-  NodeHosting,
-  NodeNotifications,
-  NodeRecords,
-  NodeSpaces,
-  P2PNode,
-} from './types.js';
+import type { DefineCollection, NodeCollection, NodeEvent, P2PNode } from './types.js';
+import { API, buildNamespaces, callMethod, givenFor, type Namespace } from './api.js';
 
 /** What `remoteNode` keeps of a node, to answer the calls that can't wait */
 interface NodeState {
@@ -50,21 +36,8 @@ interface NodeState {
 /** Tags every message, so a port shared with other traffic can tell ours apart */
 const TAG = 'weave-node';
 
-/** The namespaces whose methods cross, and the node's own methods that do */
-const NAMESPACES = new Set([
-  'spaces',
-  'records',
-  'collections',
-  'account',
-  'carriers',
-  'hosting',
-  'notifications',
-  'contacts',
-  'direct',
-  'doors',
-  'network',
-]);
-const OWN_METHODS = new Set(['iceServers', 'delegate']);
+/** The node's own methods that cross; every namespace's do (`node/api.ts`) */
+const OWN_METHODS = Object.freeze({ iceServers: true, delegate: true });
 
 /** How often the served side checks for a renewed delegation between calls */
 const DELEGATION_CHECK_MS = 60_000;
@@ -104,17 +77,12 @@ function methodAt(node: P2PNode, path: string): ((...args: unknown[]) => unknown
   const parts = path.split('.');
   const [first, second] = parts;
   if (first === undefined || parts.length > 2) return null;
-  let owner: unknown = node;
-  let name = first;
-  if (second !== undefined) {
-    if (!NAMESPACES.has(first)) return null;
-    owner = Reflect.get(node, first);
-    name = second;
-  } else if (!OWN_METHODS.has(first)) return null;
-  if (!isRecord(owner) || !Object.hasOwn(owner, name)) return null;
-  const method: unknown = owner[name];
-  if (typeof method !== 'function') return null;
-  return (...args: unknown[]): unknown => Reflect.apply(method, owner, args);
+  const listed: unknown =
+    second === undefined ? OWN_METHODS : Object.hasOwn(API, first) ? Reflect.get(API, first) : null;
+  const name = second ?? first;
+  const owner: unknown = second === undefined ? node : Reflect.get(node, first);
+  if (!isRecord(listed) || !Object.hasOwn(listed, name) || !isRecord(owner)) return null;
+  return (...args: unknown[]): unknown => callMethod(owner, name, args);
 }
 
 /**
@@ -274,9 +242,6 @@ export function serveNode(node: P2PNode, port: MessagePortLike): () => void {
   };
 }
 
-/** Every member of a namespace: `true` to forward it, or what to use here instead */
-type Members<N> = { readonly [K in keyof N]-?: true | N[K] };
-
 /**
  * The node `serveNode` answers for on the other end of `port`: the same API,
  * each call a message. Resolves once the node has said who it is.
@@ -351,15 +316,6 @@ export async function remoteNode(port: MessagePortLike): Promise<P2PNode> {
       }
     });
 
-  const namespace = <N>(handle: number, name: string, members: Members<N>): N => {
-    const built: Record<string, unknown> = {};
-    for (const [key, member] of Object.entries(members)) {
-      built[key] = member === true ? (...args: unknown[]) => ask(handle, `${name}.${key}`, args) : member;
-    }
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Members lists every one; each forwarded member runs the real method on the other end
-    return Object.freeze(built) as N;
-  };
-
   /** The name a typed collection reference stands for; a validator can't be cloned */
   const collectionName = (ref: unknown): unknown =>
     isRecord(ref) && typeof ref.name === 'string' ? ref.name : ref;
@@ -367,141 +323,73 @@ export async function remoteNode(port: MessagePortLike): Promise<P2PNode> {
   const build = (handle: number, initial: NodeState): P2PNode => {
     states.set(handle, initial);
     const state = () => states.get(handle) ?? initial;
-    const spaces = namespace<NodeSpaces>(handle, 'spaces', {
-      list: true,
-      get: true,
-      create: true,
-      invite: true,
-      preview: previewInvite,
-      join: true,
-      leave: true,
-      access: true,
-      setMember: true,
-      putRole: true,
-      removeRole: true,
-      closeInvite: true,
-      changeKey: true,
-      setRelays: true,
-      setKeepers: true,
-      revoke: true,
-      async hold(spaceId: string) {
-        const held = await ask<number>(handle, 'hold', [spaceId]);
-        return () => ask<void>(handle, 'release', [held]);
+    // Every method is asked of the other end, except these.
+    const here: { readonly [N in Namespace]?: Partial<P2PNode[N]> } = {
+      spaces: {
+        preview: previewInvite,
+        async hold(spaceId: string) {
+          const held = await ask<number>(handle, 'hold', [spaceId]);
+          return () => ask<void>(handle, 'release', [held]);
+        },
+        authenticator: () =>
+          Promise.reject(
+            new Error('A node in a worker serves no sockets; ask the node that holds the space'),
+          ),
       },
-      send: true,
-      status: true,
-      authenticator: () =>
-        Promise.reject(new Error('A node in a worker serves no sockets; ask the node that holds the space')),
-      profiles: true,
-    });
-    const records = namespace<NodeRecords>(handle, 'records', {
-      list: true,
-      get: true,
-      // Either overload: the record comes back typed as the call asked.
-      put: (...args: unknown[]) =>
-        ask<never>(handle, 'records.put', [args[0], collectionName(args[1]), ...args.slice(2)]),
-      update: true,
-      linked: true,
-      delete: true,
-      history: true,
-      can: true,
-      query: <const Q extends Query>(spaceId: string, query: Q) =>
-        ask<ResultOf<Q>>(handle, 'records.query', [spaceId, plainQuery(query)]),
-      watch: <const Q extends Query>(
-        spaceId: string,
-        query: Q,
-        onResult: (result: ResultOf<Q>) => void,
-        onError?: (error: Error) => void,
-      ) => {
-        const watch = ++nextId;
-        watchers.set(watch, {
-          // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the served node ran this query
-          onResult: (result) => onResult(result as ResultOf<Q>),
-          onError: onError ?? ((error) => console.error(error)),
-        });
-        try {
-          post({ kind: 'watch', watch, node: handle, space: spaceId, query: plainQuery(query) });
-        } catch (error) {
-          watchers.delete(watch);
-          throw error;
-        }
-        return () => {
-          if (!watchers.delete(watch)) return;
-          post({ kind: 'unwatch', watch });
-        };
+      records: {
+        // Either overload: the record comes back typed as the call asked.
+        put: (...args: unknown[]) =>
+          ask<never>(handle, 'records.put', [args[0], collectionName(args[1]), ...args.slice(2)]),
+        query: <const Q extends Query>(spaceId: string, query: Q) =>
+          ask<ResultOf<Q>>(handle, 'records.query', [spaceId, plainQuery(query)]),
+        watch: <const Q extends Query>(
+          spaceId: string,
+          query: Q,
+          onResult: (result: ResultOf<Q>) => void,
+          onError?: (error: Error) => void,
+        ) => {
+          const watch = ++nextId;
+          watchers.set(watch, {
+            // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the served node ran this query
+            onResult: (result) => onResult(result as ResultOf<Q>),
+            onError: onError ?? ((error) => console.error(error)),
+          });
+          try {
+            post({ kind: 'watch', watch, node: handle, space: spaceId, query: plainQuery(query) });
+          } catch (error) {
+            watchers.delete(watch);
+            throw error;
+          }
+          return () => {
+            if (!watchers.delete(watch)) return;
+            post({ kind: 'unwatch', watch });
+          };
+        },
       },
-    });
-    const collections = namespace<NodeCollections>(handle, 'collections', {
-      list: true,
-      define: async (spaceId: string, definition: DefineCollection) =>
-        ask<NodeCollection>(handle, 'collections.define', [
-          spaceId,
-          { ...definition, schema: toJsonSchema(definition.schema) },
-        ]),
-      delete: true,
-      tag: true,
-    });
-    return Object.freeze({
-      did: initial.did,
-      sessionDid: initial.sessionDid,
-      spaces,
-      records,
-      collections,
-      account: namespace<NodeAccount>(handle, 'account', { profile: true, setName: true, revoke: true }),
-      carriers: namespace<NodeCarriers>(handle, 'carriers', { list: true, add: true, remove: true }),
-      hosting: namespace<NodeHosting>(handle, 'hosting', {
-        list: true,
-        use: true,
-        pay: true,
-        manage: true,
-        remind: true,
-        stop: true,
-        space: true,
-        payForSpace: true,
-        remindForSpace: true,
-        stopForSpace: true,
-        startBot: true,
-      }),
-      notifications: namespace<NodeNotifications>(handle, 'notifications', {
-        list: true,
-        add: true,
-        update: true,
-        remove: true,
-        versions: true,
-        take: true,
-      }),
-      contacts: namespace<NodeContacts>(handle, 'contacts', {
-        space: true,
-        list: true,
-        get: true,
-        put: true,
-        remove: true,
-        block: true,
-        ask: true,
-        requests: true,
-        accept: true,
-        others: true,
-      }),
-      direct: namespace<NodeDirect>(handle, 'direct', { reachable: true, send: true, list: true }),
-      doors: namespace<NodeDoors>(handle, 'doors', {
-        list: true,
-        open: true,
-        close: true,
-        knock: true,
-        clear: true,
-        knocks: true,
-        sent: true,
-        accept: true,
-        dismiss: true,
-      }),
-      delegation: () => state().delegation,
-      iceServers: () => ask<ReadonlyArray<RTCIceServer>>(handle, 'iceServers', []),
-      network: Object.freeze({
+      collections: {
+        define: async (spaceId: string, definition: DefineCollection) =>
+          ask<NodeCollection>(handle, 'collections.define', [
+            spaceId,
+            { ...definition, schema: toJsonSchema(definition.schema) },
+          ]),
+      },
+      network: {
         status: () => state().status,
         reconnect: () => {
           void ask(handle, 'network.reconnect', []).catch(() => {});
         },
-      }),
+      },
+    };
+    return Object.freeze({
+      did: initial.did,
+      sessionDid: initial.sessionDid,
+      ...buildNamespaces(
+        (namespace, name) =>
+          givenFor(here, namespace, name) ??
+          ((...args: unknown[]) => ask(handle, `${namespace}.${name}`, args)),
+      ),
+      delegation: () => state().delegation,
+      iceServers: () => ask<ReadonlyArray<RTCIceServer>>(handle, 'iceServers', []),
       delegate: (params) => ask(handle, 'delegate', [params]),
       async asAgent(agent) {
         const started = await ask<{ handle: number; state: NodeState }>(handle, 'asAgent', [agent]);

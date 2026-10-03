@@ -15,7 +15,7 @@ import { useRunRules } from './rules';
 import { ConnectScreen } from './components/ConnectScreen';
 import { ContactsView } from './components/ContactsView';
 import { RelayDown, RelayNotice } from './components/RelayNotice';
-import { HowItWorks } from './components/HowItWorks';
+import { DocsNote } from './components/DocsNote';
 import { InviteBanner } from './components/InviteBanner';
 import { SpaceList } from './components/SpaceList';
 import { SpaceRail } from './components/SpaceRail';
@@ -26,14 +26,7 @@ import { Wordmark } from '@weave/app-shared/Wordmark';
 import { readDoorFromUrl, takeBack } from './contacts';
 import { styles, palette } from './styles';
 
-/**
- * The app: connect to your account home, then your spaces.
- *
- * This app never signs anyone in. "Connect with Weave" opens the account home
- * in a popup; the person approves there, and the home hands this app a signed
- * note for its own key. Every component below asks the `WeaveProvider`
- * (main.tsx) for what it needs.
- */
+/** The app: connect to your account home, then your spaces */
 export function App() {
   const { state } = useConnection();
   // Calls sit above the workspace, so moving between spaces never touches one.
@@ -191,7 +184,9 @@ function Workspace() {
                 onRemove={(id) => void forget(id)}
               />
               <AgentCard />
-              <HowItWorks />
+              <DocsNote path="packages/core/docs/spaces.md" style={{ marginTop: 16 }}>
+                Each space keeps its own store and sync, and an invite carries its key in the link.
+              </DocsNote>
             </>
           ) : (
             <ContactsView spaces={spaces} onOpen={openById} />

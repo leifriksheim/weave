@@ -1,5 +1,4 @@
 /**
- * @module schemas/screens
  * Screens: an app's own UI, kept on a collection definition and run sealed.
  *
  * A definition may carry a `screen` — one HTML document, scripts and styles

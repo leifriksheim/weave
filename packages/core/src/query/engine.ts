@@ -1,5 +1,4 @@
 /**
- * @module query/engine
  * Runs a query: narrow by collection, filter, sort, page, then follow links.
  *
  * Deliberately no planner. A browser holds a replica, not a warehouse; at that

@@ -4,7 +4,7 @@
  * closes as soon as another window takes focus.
  */
 import { ask, type CarrierStatus, type StatusChanged } from './shared';
-import { accountLine, h, mark, spaceList, summary } from './ui';
+import { accountLine, h, mark, podLine, spaceList, summary } from './ui';
 
 const app = document.getElementById('app')!;
 let status: CarrierStatus | null = null;
@@ -44,30 +44,14 @@ function render(): void {
           'section',
           {},
           h('h2', {}, 'Pod'),
-          pod.state === 'writing'
-            ? h('p', { class: 'hint' }, h('span', { class: 'dot good' }), `Up to date in “${pod.folder}”.`)
-            : pod.state === 'needs-permission'
-              ? h(
-                  'div',
-                  {},
-                  h(
-                    'p',
-                    { class: 'hint' },
-                    h('span', { class: 'dot warn' }),
-                    'Chrome wants a click before writing to it again.',
-                  ),
-                  h(
-                    'div',
-                    { class: 'actions' },
-                    h('button', { class: 'small', onClick: openWelcome }, 'Resume pod sync'),
-                  ),
-                )
-              : h(
-                  'p',
-                  { class: 'hint' },
-                  h('span', { class: 'dot warn' }),
-                  'Choose your pod folder to keep it up to date.',
-                ),
+          podLine(pod.state, pod.folder),
+          pod.state === 'needs-permission'
+            ? h(
+                'div',
+                { class: 'actions' },
+                h('button', { class: 'small', onClick: openWelcome }, 'Resume pod sync'),
+              )
+            : null,
         ),
     status.state === 'error' ? h('p', { class: 'error' }, status.error ?? 'Something went wrong.') : null,
     h(

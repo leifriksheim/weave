@@ -8,13 +8,7 @@ import { Avatar } from '@weave/app-shared/Avatar';
 import { Icon, type ICONS } from '../Icon';
 import { styles, palette } from '../../styles';
 
-/**
- * Calls, drawn once for the whole app, above whatever space is on screen: the
- * call you're in (a panel in the corner, or the whole stage), whoever is
- * ringing you (in front of everything, so it can't be missed), and the call
- * you were in before a reload. None of it lives in a space's screen, so moving
- * between spaces never touches the call.
- */
+/** Calls, drawn once above every space, so moving between spaces never touches one. */
 export function CallLayer({
   spaces,
   onGoTo,

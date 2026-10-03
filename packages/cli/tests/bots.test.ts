@@ -2,25 +2,16 @@
  * Where `weave agent --bot` keeps its bots: each in a folder of its own under
  * the home's `bots/`, never the account the home itself holds.
  */
-import { test, describe, after } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import os from 'node:os';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { findBot, listBots, newBotFolder } from '../src/bots.js';
 import { createAccount, openHome } from '../src/home.js';
+import { tempDir } from './helpers/nodes.js';
 
-const made: string[] = [];
-after(async () => {
-  await Promise.all(made.map((dir) => rm(dir, { recursive: true, force: true })));
-});
-
-async function tempHome(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'weave-bots-'));
-  made.push(dir);
-  return dir;
-}
+const tempHome = () => tempDir('weave-bots-');
 
 async function makeBot(home: string, name: string) {
   const folder = await newBotFolder(home, name);

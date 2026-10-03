@@ -14,7 +14,8 @@ import {
   newAccountId,
   type AccountSummary,
 } from '../src/identity/account-store.js';
-import { createVault, writeFolderVault } from '../src/identity/folder-account.js';
+import { createVault } from '../src/identity/folder-account.js';
+import { writeFolderVault } from './helpers/vault.js';
 import { wrapSeedWithPassphrase } from '../src/identity/account-vault.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { generateSeed } from '../src/identity/recovery-code.js';

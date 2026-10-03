@@ -13,6 +13,7 @@ import { fieldTypeOf } from '../derive/field-types';
 import { nameOf } from '../derive/people';
 import { usePeopleHere } from './Person';
 import { styles } from '../styles';
+import { useAction } from '@weave/app-shared/action';
 
 /**
  * A form for a record, drawn from its collection's schema. Without a schema,
@@ -40,27 +41,19 @@ export function SchemaForm({
     isObject(initial) ? initial : Object.fromEntries(fields.map((f) => [f.name, emptyValue(f)])),
   );
   const [json, setJson] = useState(() => JSON.stringify(initial ?? {}, null, 2));
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { run, busy, error } = useAction();
 
-  const submit = async (e: FormEvent) => {
+  const submit = (e: FormEvent) => {
     e.preventDefault();
-    setError(null);
-    let body: unknown;
-    try {
-      body = fields.length > 0 ? clean(value) : JSON.parse(json);
-    } catch {
-      setError('That is not valid JSON.');
-      return;
-    }
-    setBusy(true);
-    try {
+    return run(async () => {
+      let body: unknown;
+      try {
+        body = fields.length > 0 ? clean(value) : JSON.parse(json);
+      } catch {
+        throw new Error('That is not valid JSON.');
+      }
       await onSubmit(body);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (

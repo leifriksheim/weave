@@ -1,5 +1,4 @@
 /**
- * @module records/checks
  * Checks: conditions a collection's records must meet, written as data and
  * judged by every peer that can read them.
  *
@@ -28,6 +27,7 @@ import { cidFromBytes } from '../utils/hash.js';
 import { utf8Encode } from '../utils/encoding.js';
 import { isObject } from '../utils/guards.js';
 import type { Link } from '../types.js';
+import { LINK_REL_PATTERN } from './links.js';
 
 /**
  * A condition, as JSON: a literal, a list, or `{ "<operator>": <arguments> }`.
@@ -109,7 +109,8 @@ const OVER_ELEMENTS = new Set(['map', 'filter', 'all', 'some', 'count', 'sum']);
 const PATH =
   /^([A-Za-z_][A-Za-z0-9_]{0,63}|0|[1-9][0-9]{0,8})(\.([A-Za-z_][A-Za-z0-9_]{0,63}|0|[1-9][0-9]{0,8})){0,7}$/;
 
-const PERMISSION = /^[a-z][a-zA-Z0-9]{0,39}$/;
+/** A permission a collection declares: lower camel case, like `moderate` or `closePolls` */
+export const PERMISSION_PATTERN = /^[a-z][a-zA-Z0-9]{0,39}$/;
 
 /** An operation's operator and arguments: a list is the arguments, anything else is the one argument */
 function operation(condition: unknown): { op: string; args: ReadonlyArray<unknown> } | null {
@@ -188,11 +189,11 @@ function checkCondition(
   }
   if (op === 'get' && (typeof args[1] !== 'string' || !PATH.test(args[1])))
     return `${at}: "get" takes a value and a path, like "body.amount"`;
-  if (op === 'link' && (typeof args[0] !== 'string' || !/^[a-z][a-zA-Z0-9]{0,63}$/.test(args[0])))
+  if (op === 'link' && (typeof args[0] !== 'string' || !LINK_REL_PATTERN.test(args[0])))
     return `${at}: "link" takes a link role, like "about"`;
   if (op === 'can') {
     const permission = args[0];
-    if (typeof permission !== 'string' || !PERMISSION.test(permission))
+    if (typeof permission !== 'string' || !PERMISSION_PATTERN.test(permission))
       return `${at}: "can" takes a permission, like "approve"`;
     if (!permissions.includes(permission))
       return `${at}: names "${permission}", but the collection does not declare it in its permissions`;

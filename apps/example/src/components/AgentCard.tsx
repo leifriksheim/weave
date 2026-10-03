@@ -3,11 +3,7 @@ import { ConnectAgent } from './ConnectAgent';
 import { Icon } from './Icon';
 import { styles, palette } from '../styles';
 
-/**
- * Under the list of spaces: the way to make apps of your own. An agent
- * connected to the account can propose an app to any space, so this is where
- * someone who has not opened a space yet learns it can be done.
- */
+/** Under the list of spaces: the way to make apps of your own, with an agent */
 export function AgentCard() {
   const [connecting, setConnecting] = useState(false);
   return (

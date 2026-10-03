@@ -17,17 +17,17 @@ import {
   own,
   person,
   text,
-  typed,
+  define,
   when,
   words,
-  type BlobRef,
 } from '../fragments.js';
+import type { BodyOf } from '../../query/types.js';
 
 /**
  * A question with fixed options. The options cannot change once it is asked —
  * votes point at them by position — but whoever asked can close it.
  */
-export const poll = typed<Poll>()({
+export const poll = define({
   name: 'std.poll',
   title: 'Poll',
   description: 'A question with options to vote on.',
@@ -43,11 +43,7 @@ export const poll = typed<Poll>()({
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'], fixed: ['options'] },
 });
-export interface Poll {
-  readonly question: string;
-  readonly options: ReadonlyArray<string>;
-  readonly closed?: boolean;
-}
+export type Poll = BodyOf<typeof poll>;
 
 /**
  * One person's vote on a poll or proposal: the position of their choice in
@@ -55,7 +51,7 @@ export interface Poll {
  * in order and `choice` is the first. One per person per poll — voting again
  * changes it; deleting takes it back.
  */
-export const vote = typed<Vote>()({
+export const vote = define({
   name: 'std.vote',
   title: 'Vote',
   description: 'A vote on a poll: one per person, changed by voting again.',
@@ -79,15 +75,10 @@ export const vote = typed<Vote>()({
   rules: { edit: 'creator', delete: 'creator', onePer: ['@author', 'link:about'] },
   topics: ['respondingTo'],
 });
-export interface Vote {
-  readonly choice: number;
-  readonly choices?: ReadonlyArray<number>;
-  /** The account whose record it responds to */
-  readonly respondingTo?: string;
-}
+export type Vote = BodyOf<typeof vote>;
 
 /** Something put to the group to decide, voted on with `std.vote` over its options. */
-export const proposal = typed<Proposal>()({
+export const proposal = define({
   name: 'std.proposal',
   title: 'Proposal',
   description: 'Something put to the group to decide by a vote.',
@@ -106,14 +97,7 @@ export const proposal = typed<Proposal>()({
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'], fixed: ['options'] },
 });
-export interface Proposal {
-  readonly title: string;
-  readonly body?: string;
-  readonly options: ReadonlyArray<string>;
-  readonly closesAt?: string;
-  readonly status?: 'open' | 'passed' | 'rejected' | 'withdrawn';
-  readonly quorum?: number;
-}
+export type Proposal = BodyOf<typeof proposal>;
 
 // ─── Proven outcomes ───────────────────────────────────────────────
 //
@@ -150,7 +134,7 @@ const citesWhatItIsAbout = (path: string, collection: string) => ({
  * options. Unlike a `std.vote`, it can't be changed once cast, so a
  * `std.decision` can cite it and mean it.
  */
-export const ballot = typed<Ballot>()({
+export const ballot = define({
   name: 'std.ballot',
   title: 'Ballot',
   description: 'A final vote on a proposal: one per person, not changed once cast.',
@@ -166,11 +150,7 @@ export const ballot = typed<Ballot>()({
   rules: { ...own, onePer: ['@author', 'link:about'], fixed: ['choice'] },
   topics: ['respondingTo'],
 });
-export interface Ballot {
-  readonly choice: number;
-  /** The account whose record it responds to */
-  readonly respondingTo?: string;
-}
+export type Ballot = BodyOf<typeof ballot>;
 
 const DECIDES: ReadonlyArray<Check> = [
   {
@@ -208,7 +188,7 @@ const DECIDES: ReadonlyArray<Check> = [
  * enough ballots for one option, from different people, to reach its
  * quorum. Anyone may write it once the ballots are in; every device checks.
  */
-export const decision = typed<Decision>()({
+export const decision = define({
   name: 'std.decision',
   title: 'Decision',
   description: 'What a proposal came to, proven by the ballots it cites.',
@@ -234,17 +214,13 @@ export const decision = typed<Decision>()({
   links: { about: one(['std.proposal'], 'The proposal decided') },
   rules: { edit: 'creator', delete: 'creator', onePer: ['link:about'], check: DECIDES },
 });
-export interface Decision {
-  readonly outcome: number;
-  readonly proposal: string;
-  readonly ballots: ReadonlyArray<string>;
-}
+export type Decision = BodyOf<typeof decision>;
 
 /**
  * Something the group reaches together, a unit at a time: "40 people", "5000
  * NOK", "100 hours". People pledge toward it; `std.goal-reached` proves it.
  */
-export const goal = typed<Goal>()({
+export const goal = define({
   name: 'std.goal',
   title: 'Goal',
   description: 'A target the group reaches together, pledge by pledge.',
@@ -262,16 +238,10 @@ export const goal = typed<Goal>()({
   permissions: ['moderate'],
   rules: { ...authored, fixed: ['target', 'unit'] },
 });
-export interface Goal {
-  readonly title: string;
-  readonly body?: string;
-  readonly target: number;
-  readonly unit: string;
-  readonly closesAt?: string;
-}
+export type Goal = BodyOf<typeof goal>;
 
 /** One person's pledge toward a goal, in its units: once each, not changed once made. */
-export const pledge = typed<Pledge>()({
+export const pledge = define({
   name: 'std.pledge',
   title: 'Pledge',
   description: 'A promise toward a goal: once per person, not changed once made.',
@@ -288,12 +258,7 @@ export const pledge = typed<Pledge>()({
   rules: { ...own, onePer: ['@author', 'link:about'], fixed: ['amount'] },
   topics: ['respondingTo'],
 });
-export interface Pledge {
-  readonly amount: number;
-  readonly note?: string;
-  /** The account whose record it responds to */
-  readonly respondingTo?: string;
-}
+export type Pledge = BodyOf<typeof pledge>;
 
 const PLEDGES = citedAbout('body.pledges', 'std.pledge');
 const REACHES: ReadonlyArray<Check> = [
@@ -317,7 +282,7 @@ const REACHES: ReadonlyArray<Check> = [
 ];
 
 /** A goal reached, proven: it cites the goal as first set and pledges that add up to its target. */
-export const goalReached = typed<GoalReached>()({
+export const goalReached = define({
   name: 'std.goal-reached',
   title: 'Goal reached',
   description: 'A goal reached, proven by the pledges it cites.',
@@ -337,13 +302,10 @@ export const goalReached = typed<GoalReached>()({
   links: { about: one(['std.goal'], 'The goal reached') },
   rules: { edit: 'creator', delete: 'creator', onePer: ['link:about'], check: REACHES },
 });
-export interface GoalReached {
-  readonly goal: string;
-  readonly pledges: ReadonlyArray<string>;
-}
+export type GoalReached = BodyOf<typeof goalReached>;
 
 /** News for everyone in the space, from whoever may announce. */
-export const announcement = typed<Announcement>()({
+export const announcement = define({
   name: 'std.announcement',
   title: 'Announcement',
   description: 'News for everyone in the space.',
@@ -355,13 +317,10 @@ export const announcement = typed<Announcement>()({
   permissions: ['announce'],
   rules: { create: 'can:announce', edit: 'creator', delete: ['creator', 'can:announce'] },
 });
-export interface Announcement {
-  readonly title: string;
-  readonly text?: string;
-}
+export type Announcement = BodyOf<typeof announcement>;
 
 /** A badge that can be awarded. */
-export const badge = typed<Badge>()({
+export const badge = define({
   name: 'std.badge',
   title: 'Badge',
   description: 'A badge that people can be awarded.',
@@ -373,14 +332,10 @@ export const badge = typed<Badge>()({
   permissions: ['award'],
   rules: { create: 'can:award', edit: 'can:award' },
 });
-export interface Badge {
-  readonly name: string;
-  readonly description?: string;
-  readonly image?: BlobRef;
-}
+export type Badge = BodyOf<typeof badge>;
 
 /** A badge given to someone: once per person per badge. */
-export const award = typed<Award>()({
+export const award = define({
   name: 'std.award',
   title: 'Award',
   description: 'A badge given to someone, once.',
@@ -394,13 +349,10 @@ export const award = typed<Award>()({
   rules: { create: 'can:award', edit: 'can:award', onePer: ['link:about', 'did'] },
   topics: ['did'],
 });
-export interface Award {
-  readonly did: string;
-  readonly note?: string;
-}
+export type Award = BodyOf<typeof award>;
 
 /** One of a person's settings for an app: one per person per app per key. */
-export const setting = typed<Setting>()({
+export const setting = define({
   name: 'std.setting',
   title: 'Setting',
   description: 'A person’s setting for an app: one per app and key.',
@@ -415,11 +367,7 @@ export const setting = typed<Setting>()({
   },
   rules: { ...own, onePer: ['@author', 'app', 'key'] },
 });
-export interface Setting {
-  readonly app: string;
-  readonly key: string;
-  readonly value?: unknown;
-}
+export type Setting = BodyOf<typeof setting>;
 
 /**
  * A host the space pays to keep it online: its own subscription there
@@ -428,7 +376,7 @@ export interface Setting {
  * it carries the space without being able to read it. Only those who may
  * manage it choose the host: naming one sends it every member's pass.
  */
-export const host = typed<Host>()({
+export const host = define({
   name: 'std.host',
   title: 'Host',
   description: 'A host the space pays to keep it online, and anyone in it may chip in for.',
@@ -444,8 +392,22 @@ export const host = typed<Host>()({
   permissions: ['manage'],
   rules: { create: 'can:manage', edit: 'can:manage', delete: 'can:manage', onePer: ['url'] },
 });
-export interface Host {
-  readonly url: string;
-  readonly did?: string;
-  readonly name?: string;
-}
+export type Host = BodyOf<typeof host>;
+
+/** This file's part of `standardGroups` */
+export const communityGroups = {
+  'Community and governance': [
+    poll,
+    vote,
+    proposal,
+    ballot,
+    decision,
+    goal,
+    pledge,
+    goalReached,
+    announcement,
+    badge,
+    award,
+  ],
+  Settings: [setting, host],
+};

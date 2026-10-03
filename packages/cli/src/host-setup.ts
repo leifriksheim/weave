@@ -16,8 +16,8 @@ import { openFsDirectory } from './fs-directory.js';
 import type { Billing } from './host.js';
 import { createStripeBilling } from './stripe.js';
 import { createWalletPayments, isNetworkName, NETWORKS, type WalletPayments } from './wallet.js';
-import { parsePrice, priceOf, streamingThink } from './agent-chat.js';
-import { openAIThink } from './agent-openai.js';
+import { chooseModel, isLoopback, isPlain, thinker } from './model.js';
+import { commaList } from './json.js';
 import type { BotModel } from './hosted-bots.js';
 
 /** Where a host keeps its data unless told: `~/.weave-host` */
@@ -158,9 +158,6 @@ export function mirrorFromEnv(env: NodeJS.ProcessEnv): BlobStore | null {
   });
 }
 
-/** Whether an address only this machine can reach */
-const isLoopback = (host: string | undefined) => !host || ['127.0.0.1', 'localhost', '::1'].includes(host);
-
 /**
  * The accounts a host carries for, from `--allow` and WEAVE_HOST_ALLOW
  * (comma separated): account DIDs, as the home shows them. None: any.
@@ -169,9 +166,7 @@ export function allowList(
   flags: ReadonlyArray<string> | undefined,
   env: NodeJS.ProcessEnv,
 ): ReadonlyArray<string> | null {
-  const named = [...(flags ?? []), ...(env.WEAVE_HOST_ALLOW ?? '').split(',')]
-    .map((did) => did.trim())
-    .filter(Boolean);
+  const named = [...(flags ?? []), ...commaList(env.WEAVE_HOST_ALLOW)];
   if (named.length === 0) return null;
   const wrong = named.find((did) => !/^did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}$/.test(did));
   if (wrong)
@@ -199,16 +194,11 @@ export function checkExposure(options: {
 
 /**
  * Bots the host runs for the spaces it carries, when WEAVE_HOST_BOTS=1: they
- * think with the host's own key and WEAVE_BOT_MODEL, each spends
- * WEAVE_BOT_DAILY_CAP dollars a day at most (default 1), and what they spend
- * is taken from their community's fund (`fundFromEnv`). None otherwise.
- *
- * WEAVE_BOT_PROVIDER is `anthropic` (the default: ANTHROPIC_API_KEY, model
- * claude-sonnet-5-5) or `openai`, for any server that speaks Chat
- * Completions (OPENAI_API_KEY, WEAVE_BOT_BASE_URL, default OpenAI's; the
- * model is named). A model whose price isn't known here needs
- * WEAVE_BOT_PRICE, dollars per million tokens like `1.25/10`, as
- * `weave agent --price` takes it: the daily cap and the fund are counted in it.
+ * think with the host's own key, each spends WEAVE_BOT_DAILY_CAP dollars a
+ * day at most (default 1), taken from their community's fund (`fundFromEnv`).
+ * WEAVE_BOT_PROVIDER, WEAVE_BOT_MODEL, WEAVE_BOT_BASE_URL and WEAVE_BOT_PRICE
+ * choose the model as `weave agent`'s flags do (`chooseModel`), with
+ * claude-sonnet-5-5 by default. None otherwise.
  */
 export async function botsFromEnv(
   env: NodeJS.ProcessEnv,
@@ -216,38 +206,39 @@ export async function botsFromEnv(
   fetch: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<{ folder: string; model: BotModel } | null> {
   if (env.WEAVE_HOST_BOTS !== '1') return null;
-  const provider = env.WEAVE_BOT_PROVIDER?.trim() || 'anthropic';
-  if (provider !== 'anthropic' && provider !== 'openai')
-    throw new Error(`WEAVE_BOT_PROVIDER is anthropic or openai, not "${provider}"`);
-  const name = env.WEAVE_BOT_MODEL?.trim() || (provider === 'anthropic' ? 'claude-sonnet-5-5' : '');
-  if (!name) throw new Error('WEAVE_BOT_PROVIDER=openai needs WEAVE_BOT_MODEL: gpt-5.5, deepseek-v4-pro, …');
-  const priceText = env.WEAVE_BOT_PRICE?.trim();
-  const price = priceText ? parsePrice(priceText) : priceOf(name);
-  if (priceText && !price)
-    throw new Error(`WEAVE_BOT_PRICE is dollars per million tokens, like 1.25/10, not "${priceText}"`);
-  if (!price)
-    throw new Error(
-      `WEAVE_BOT_PRICE: no price is known for ${name}, and the daily cap and the fund need one. Give dollars per million tokens, input/output, like 1.25/10.`,
-    );
+  const model = chooseModel(
+    {
+      provider: env.WEAVE_BOT_PROVIDER,
+      model: env.WEAVE_BOT_MODEL,
+      price: env.WEAVE_BOT_PRICE,
+      baseUrl: env.WEAVE_BOT_BASE_URL,
+    },
+    'claude-sonnet-5-5',
+    { provider: 'WEAVE_BOT_PROVIDER', model: 'WEAVE_BOT_MODEL', price: 'WEAVE_BOT_PRICE' },
+  );
   const dailyCap = Number(env.WEAVE_BOT_DAILY_CAP ?? '1');
   if (!Number.isFinite(dailyCap) || dailyCap <= 0)
     throw new Error(`WEAVE_BOT_DAILY_CAP must be dollars a day, like 1, not "${env.WEAVE_BOT_DAILY_CAP}"`);
-  const folder = path.join(data, 'bots');
-  if (provider === 'openai') {
-    const baseUrl = env.WEAVE_BOT_BASE_URL?.trim() || 'https://api.openai.com/v1';
-    const apiKey = env.OPENAI_API_KEY?.trim() ?? '';
-    // A server on this machine may ask for no key; OpenAI's always does.
-    if (!apiKey && !isLoopback(new URL(baseUrl).hostname))
-      throw new Error(`WEAVE_BOT_PROVIDER=openai needs OPENAI_API_KEY for ${baseUrl}`);
-    const think = openAIThink({ baseUrl, apiKey, write: () => {}, fetch });
-    return { folder, model: { name, price, dailyCap, plain: true, think: () => think } };
-  }
-  const apiKey = env.ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) throw new Error('WEAVE_HOST_BOTS needs ANTHROPIC_API_KEY: the bots think with the host’s key');
-  // The SDK is loaded only when bots run: it is most of the bundle.
-  const { default: Anthropic } = await import('@anthropic-ai/sdk');
-  const client = new Anthropic({ apiKey });
-  return { folder, model: { name, price, dailyCap, think: () => streamingThink(client, () => {}) } };
+  const openai = model.provider === 'openai';
+  const apiKey = (openai ? env.OPENAI_API_KEY : env.ANTHROPIC_API_KEY)?.trim();
+  // A server on this machine may ask for no key; OpenAI's and Anthropic's always do.
+  if (!apiKey && !(openai && model.baseUrl && isLoopback(model.baseUrl)))
+    throw new Error(
+      openai
+        ? `WEAVE_BOT_PROVIDER=openai needs OPENAI_API_KEY for ${model.baseUrl ?? 'https://api.openai.com/v1'}`
+        : 'WEAVE_HOST_BOTS needs ANTHROPIC_API_KEY: the bots think with the host’s key',
+    );
+  const think = await thinker(model, apiKey ?? null, fetch);
+  return {
+    folder: path.join(data, 'bots'),
+    model: {
+      name: model.name,
+      price: model.price,
+      dailyCap,
+      think: () => think(() => {}),
+      ...(isPlain(model) ? { plain: true } : {}),
+    },
+  };
 }
 
 /**

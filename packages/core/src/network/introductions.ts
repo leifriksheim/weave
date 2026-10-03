@@ -1,22 +1,8 @@
 /**
- * @module introductions
- * Letting peers introduce each other, so a relay is only needed to meet the
- * first one.
- *
- * Two browsers cannot find each other unaided — neither can accept an incoming
- * connection — so somebody has to make the introduction. That does not have to
- * be a relay every time. Once you are connected to one peer, its data channel
- * is a perfectly good channel for arranging the next connection, and the peers
- * it already knows are exactly the ones you are looking for.
- *
- * So a relay shrinks from permanent infrastructure to a bootstrap hint: the way
- * into a room you have never been in. After that the mesh introduces itself, and
- * the relay can go away without anyone noticing.
- *
- * Two messages do it. `__peers` says who I can see; `__signal` carries somebody
- * else's connection offer to somebody I can reach.
+ * Peers introduce each other over the data channels they already have, so a
+ * relay is needed only to meet the first one. `__peers` says who I can see;
+ * `__signal` carries somebody else's offer to somebody I can reach.
  */
-
 import { bytesToHex } from '../utils/encoding.js';
 
 /** Message types reserved for the mesh itself, never handed to the application */
@@ -63,28 +49,10 @@ export interface RelayedSignal {
   readonly hops: number;
 }
 
-/**
- * How far a relayed signal travels.
- *
- * Three is generous for the shape these meshes take — everyone in a room tends
- * to end up within a hop or two of everyone else — and it bounds the work a
- * malicious peer can cause by injecting traffic.
- */
+/** How far a relayed signal travels: everyone in a room tends to be within a hop or two, and it bounds what a peer can inject */
 export const MAX_HOPS = 3;
 
-/**
- * Decides which side opens the connection when two peers learn of each other
- * at the same moment.
- *
- * Both being told about the other simultaneously is the normal case for an
- * introduction, and both offering produces two half-open connections that then
- * have to be unpicked. Comparing identifiers costs nothing and both sides
- * always agree on the answer.
- *
- * @param us This peer
- * @param them The peer just learned about
- * @returns Whether this side should send the offer
- */
+/** Which side offers when two peers learn of each other at once, so they never make two half-open connections */
 export function shouldInitiate(us: string, them: string): boolean {
   return us < them;
 }
@@ -95,29 +63,15 @@ export interface SeenSignals {
   accept(id: string): boolean;
 }
 
-/**
- * Creates a bounded record of signal ids.
- *
- * Bounded because it is fed by the network: an unbounded set would be a way for
- * a peer to make this tab run out of memory.
- *
- * @param limit How many ids to remember
- * @returns The record
- */
+/** Bounded, because the network feeds it: an unbounded set would let a peer exhaust this tab's memory. */
 export function createSeenSignals(limit = 512): SeenSignals {
   const seen = new Set<string>();
-  const order: string[] = [];
-
   return {
     accept(id: string): boolean {
       if (seen.has(id)) return false;
-
       seen.add(id);
-      order.push(id);
-      if (order.length > limit) {
-        const oldest = order.shift();
-        if (oldest !== undefined) seen.delete(oldest);
-      }
+      // A set iterates in insertion order: the first is the oldest.
+      if (seen.size > limit) seen.delete(seen.values().next().value ?? id);
       return true;
     },
   };
@@ -125,6 +79,5 @@ export function createSeenSignals(limit = 512): SeenSignals {
 
 /** A fresh identifier for a relayed signal. */
 export function signalId(): string {
-  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(8));
-  return bytesToHex(bytes);
+  return bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(8)));
 }

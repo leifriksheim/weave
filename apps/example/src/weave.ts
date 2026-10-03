@@ -1,12 +1,4 @@
-/**
- * This app's Weave setup.
- *
- * The app never signs anyone in and never holds a seed. It connects to the
- * person's account home, which opens in a popup, asks what the app may use,
- * and hands back a signed note for this app's own key. Components reach the
- * result through `<WeaveProvider connection={connection}>` (main.tsx) and the
- * hooks in `@weaveprotocol/core/react`.
- */
+// This app's Weave setup: it never holds a seed, and connects to the person's account home instead.
 import { createWeaveConnection } from '@weaveprotocol/core/session';
 import { CONFIGURED_HOSTS, CONFIGURED_NODES, relayUrls } from '@weave/app-shared/relay';
 

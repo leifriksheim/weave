@@ -1,5 +1,4 @@
 /**
- * @module account-registry
  * The account's own list of spaces, kept in a space.
  *
  * Without it, which spaces an account belongs to lives on each device alone: a
@@ -72,7 +71,6 @@ export interface Carrier {
 /**
  * The account's registry space, derived — the same on every device.
  * @param accountKey The account's vault key bytes (`deriveVaultKeyBytes(seed)`)
- * @param owner The account's DID
  */
 export function deriveAccountRegistry(
   accountKey: Uint8Array,

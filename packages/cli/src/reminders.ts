@@ -16,6 +16,7 @@
  * JSON at `WEAVE_MAIL_URL`.
  */
 import type { BlobStore, StorageAdapter, Subscription, SubscriptionState } from '@weaveprotocol/core';
+import { messageOf } from './json.js';
 
 /** Sends one plain-text mail */
 export interface Mailer {
@@ -224,7 +225,7 @@ export function createReminders(options: {
             sent: [...asked.sent.filter((s) => s.endsWith(`:${until}`)), `${due}:${until}`],
           });
         } catch (error) {
-          log(`a reminder could not be sent: ${error instanceof Error ? error.message : String(error)}`);
+          log(`a reminder could not be sent: ${messageOf(error)}`);
         }
       }
     },

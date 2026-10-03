@@ -4,16 +4,13 @@
  * handing over — and a node with no secret at all reaching the same verdict
  * as a member.
  */
-import { test, describe, afterEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { isRecord } from '../src/utils/guards.js';
 
-import { createNode } from '../src/node/node.js';
-import type { P2PNode } from '../src/node/types.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
-import { generateSeed } from '../src/identity/recovery-code.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
 import { createSigner } from '../src/schema/signer.js';
 import { createExpression } from '../src/schema/expression.js';
@@ -28,57 +25,20 @@ import {
   verifyInvite,
 } from '../src/space/space-access.js';
 import { community, team } from '../src/space/presets.js';
-import type { Expression } from '../src/types.js';
 import { base64UrlDecode, base64UrlEncode, utf8Decode, utf8Encode } from '../src/utils/encoding.js';
-import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
-import { memoryStores } from './helpers/memory-stores.js';
+import { createFakeHub } from './helpers/fake-transport.js';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { joined } from './helpers/joined.js';
 import { hold, letGo } from './helpers/hold.js';
 import { stored } from './helpers/stored.js';
 import { until } from './helpers/until.js';
+import { forge as forgeVersion, person, type Person } from './helpers/person.js';
 
 const provider = createP256Provider();
 
-const open: P2PNode[] = [];
-afterEach(async () => {
-  await Promise.all(open.splice(0).map((node) => node.close()));
-});
-
-async function person(hub: FakeHub) {
-  const manager = createIdentityManager();
-  const me = await manager.fromSeed(generateSeed());
-  const stores = memoryStores();
-  const node = await createNode({
-    signer: createLocalRootSigner(me, manager.getProvider()),
-    stores,
-    watchIntervalMs: 0,
-    network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
-  });
-  open.push(node);
-  return { node, me, manager, stores };
-}
-type Person = Awaited<ReturnType<typeof person>>;
-
 /** A record signed by hand with a valid session and delegation, claiming to have seen `seen` */
-async function forge(
-  who: Person,
-  space: string,
-  body: unknown,
-  seen: ReadonlyArray<string> = [],
-): Promise<Expression> {
-  const pair = await provider.generateKeyPair();
-  const keyDid = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
-  const ucan = await createLocalRootSigner(who.me, who.manager.getProvider()).delegate({
-    audience: keyDid,
-    capabilities: [{ with: `space:${space}`, can: 'expression/write' }],
-    expiration: Math.floor(Date.now() / 1000) + 3600,
-  });
-  return createSigner(provider).sign(
-    createExpression({ author: keyDid, collection: 'app.note', space, body, proof: ucan.encoded, seen }),
-    pair.privateKey,
-  );
-}
+const forge = (who: Person, space: string, body: unknown, seen: ReadonlyArray<string> = []) =>
+  forgeVersion(who, space, { collection: 'app.note', body, seen }, { keep: false });
 
 /** Rewrites an invite, as whoever passes it along could */
 function tamper(

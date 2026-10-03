@@ -2,18 +2,14 @@
  * Profiles in a space: who is who, set once for the account, and only by the
  * person it names.
  */
-import { test, describe, afterEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as z from 'zod';
 
-import { createNode } from '../src/node/node.js';
 import { runAction } from '../src/node/actions.js';
 import { profileKey } from '../src/node/space-runtime.js';
 import type { P2PNode } from '../src/node/types.js';
-import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
-import { generateSeed } from '../src/identity/recovery-code.js';
-import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
 import { createSigner } from '../src/schema/signer.js';
 import { nextVersion } from '../src/records/version.js';
@@ -23,32 +19,15 @@ import { PROFILE_COLLECTION } from '../src/space/account-registry.js';
 import { seenBy } from './helpers/as-member.js';
 import { joined } from './helpers/joined.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
-import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { hold } from './helpers/hold.js';
 import { stored } from './helpers/stored.js';
 import { until } from './helpers/until.js';
+import type { StoreFactory } from '../src/node/stores.js';
+import { person as somebody } from './helpers/person.js';
 
-const open: P2PNode[] = [];
-afterEach(async () => {
-  await Promise.all(open.splice(0).map((node) => node.close()));
-});
-
-async function person(hub: FakeHub, name?: string, stores = memoryStores()) {
-  const seed = generateSeed();
-  const manager = createIdentityManager();
-  const me = await manager.fromSeed(seed);
-  const node = await createNode({
-    signer: createLocalRootSigner(me, manager.getProvider()),
-    stores,
-    accountKey: await deriveVaultKeyBytes(seed),
-    watchIntervalMs: 0,
-    network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
-  });
-  open.push(node);
-  if (name) await node.account.setName(name);
-  return { node, me, manager, stores };
-}
+const person = (hub: FakeHub, name?: string, stores?: StoreFactory) =>
+  somebody(hub, { name, stores, accountKey: true });
 
 const nameIn = async (node: P2PNode, space: string, did: string) =>
   (await node.spaces.profiles(space)).find((p) => p.did === did)?.name;

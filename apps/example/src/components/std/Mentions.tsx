@@ -48,14 +48,7 @@ function splitMentions(
   return segments;
 }
 
-/**
- * "@" in a text box: suggests the people of the space as you type after it
- * (a member who gave no name here by the tail of their DID),
- * and works out whom a text mentions when it is sent, for `mentions` on a
- * `std.message`, `std.comment` or `std.post`. A mention is whoever was picked
- * after "@", or whoever's full name was typed after one. Names are shown
- * unique (`nameOf`), so neither is a guess.
- */
+/** "@" in a text box: suggests the space's people as you type, and works out whom a sent text mentions. */
 export function useMentions(options: {
   readonly draft: string;
   readonly setDraft: (draft: string) => void;

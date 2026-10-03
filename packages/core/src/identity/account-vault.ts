@@ -1,46 +1,16 @@
 /**
  * @module account-vault
- * The lock on a data folder.
- *
- * A folder that holds its seed in the clear is a bearer token: whoever copies it
- * is you, and the AES key for every private space sits in the same directory as
- * the ciphertext it opens. So the seed is never stored — only **wrapped copies**
- * of it are, one per way of unlocking.
- *
- * ```
- * account seed (16 bytes, never written in the clear)
- *   ├── HKDF → vault key ──encrypts──> space keys and space records at rest
- *   └── stored only as wraps:
- *         device     a random key in this origin's storage, gated by a passkey
- *         passphrase the account's password: PBKDF2-SHA256 → AES-GCM
- * ```
- *
- * Both wraps are everyday ways in where this file is, and neither carries the
- * account anywhere else — that is what the recovery code is for. A device wrap
- * opens on one origin; a password opens on any origin that can read the file,
- * which for a pod is every app pointed at it. Adding an app means adding a wrap
- * there, and two shortcuts end up meaning one account without a delegation
- * chain anywhere in sight.
- *
- * The recovery code needs no wrap at all: it *is* the seed, in printable form.
- * It is shown once and never stored, and it is the way in when no wrap fits —
- * a phone, Safari, or an origin that has never seen this folder.
- *
- * ## What this does not protect
- *
- * Expression files keep their author DID, timestamps and collection names in
- * the clear, and public spaces keep their bodies that way by design. Locking
- * those too would mean an opaque blob store, which would cost the property that
- * makes a folder worth having — that you can open it and see what is in it.
+ * The lock on a data folder: the seed is never stored, only wrapped copies of
+ * it, one per way of unlocking (a device key gated by a passkey, or a
+ * passphrase). The recovery code needs no wrap: it is the seed.
  */
 
-import { base64UrlEncode, base64UrlDecode, utf8Encode } from '../utils/encoding.js';
+import { base64UrlEncode, base64UrlDecode, concatBytes, utf8Encode } from '../utils/encoding.js';
 import { protocolError } from '../utils/errors.js';
 import { bufferSource, isRecord } from '../utils/guards.js';
 import { hkdf, hkdfAesKey } from './hkdf.js';
+import { aesOpen, aesSeal, NONCE_BYTES } from './aes.js';
 
-/** AES-GCM wants 96 bits of nonce. */
-const IV_BYTES = 12;
 const SALT_BYTES = 16;
 
 /**
@@ -128,32 +98,17 @@ function wrapId(): string {
   return base64UrlEncode(randomBytes(8));
 }
 
-/**
- * Encrypts a seed under a key.
- * @param seed The seed to protect
- * @param key An AES-GCM key
- * @returns The nonce and ciphertext, base64url encoded
- */
 async function seal(seed: Uint8Array, key: CryptoKey): Promise<{ iv: string; ciphertext: string }> {
-  const iv = randomBytes(IV_BYTES);
-  const ciphertext = await globalThis.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bufferSource(seed));
-  return { iv: base64UrlEncode(iv), ciphertext: base64UrlEncode(new Uint8Array(ciphertext)) };
+  const sealed = await aesSeal(key, seed);
+  return {
+    iv: base64UrlEncode(sealed.subarray(0, NONCE_BYTES)),
+    ciphertext: base64UrlEncode(sealed.subarray(NONCE_BYTES)),
+  };
 }
 
-/**
- * Decrypts a seed, turning the failure into something a UI can say out loud.
- * @param wrap The wrap to open
- * @param key The key it should be under
- * @returns The seed
- */
 async function open(wrap: WrapBase, key: CryptoKey): Promise<Uint8Array> {
   try {
-    const plain = await globalThis.crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: bufferSource(base64UrlDecode(wrap.iv)) },
-      key,
-      bufferSource(base64UrlDecode(wrap.ciphertext)),
-    );
-    return new Uint8Array(plain);
+    return await aesOpen(key, concatBytes(base64UrlDecode(wrap.iv), base64UrlDecode(wrap.ciphertext)));
   } catch {
     // AES-GCM authenticates, so this is the wrong key rather than corruption.
     throw protocolError(
@@ -166,10 +121,7 @@ async function open(wrap: WrapBase, key: CryptoKey): Promise<Uint8Array> {
 
 /**
  * Stretches a passphrase into the key that wraps a seed.
- * @param passphrase What the user typed
- * @param salt Per-wrap salt
  * @param iterations PBKDF2 rounds, read from the wrap so old ones stay openable
- * @returns An AES-GCM key
  */
 async function passphraseWrappingKey(
   passphrase: string,
@@ -198,11 +150,6 @@ async function passphraseWrappingKey(
  * The key is random and lives in this origin's storage; the passkey recorded
  * alongside is the gate in front of it, not the source of it. See
  * {@link module:device-key}.
- *
- * @param seed The account seed
- * @param deviceKey The local key, from `createDeviceKey`
- * @param meta Which origin this belongs to, and the passkey gating it
- * @returns A wrap ready to append to the account file
  */
 export async function wrapSeedWithDeviceKey(
   seed: Uint8Array,
@@ -226,23 +173,12 @@ export async function wrapSeedWithDeviceKey(
   };
 }
 
-/**
- * Opens a device wrap.
- * @param wrap The wrap to open
- * @param deviceKey The local key it names
- * @returns The seed
- */
+/** Opens a device wrap. */
 export async function unwrapSeedWithDeviceKey(wrap: DeviceWrap, deviceKey: CryptoKey): Promise<Uint8Array> {
   return open(wrap, deviceKey);
 }
 
-/**
- * Wraps a seed under a passphrase — the portable way back in.
- * @param seed The account seed
- * @param passphrase What the user chose
- * @param label What to call this wrap
- * @returns A wrap ready to append to the account file
- */
+/** Wraps a seed under a passphrase — the portable way back in. */
 export async function wrapSeedWithPassphrase(
   seed: Uint8Array,
   passphrase: string,
@@ -262,12 +198,7 @@ export async function wrapSeedWithPassphrase(
   };
 }
 
-/**
- * Opens a passphrase wrap.
- * @param wrap The wrap to open
- * @param passphrase What the user typed
- * @returns The seed
- */
+/** Opens a passphrase wrap. */
 export async function unwrapSeedWithPassphrase(
   wrap: PassphraseWrap,
   passphrase: string,
@@ -287,9 +218,6 @@ export async function unwrapSeedWithPassphrase(
  * Identical material to `deriveVaultKey`: same input, same info, same length.
  * If those ever drift, the registry and the folder would be sealed under two
  * different keys.
- *
- * @param seed The account seed
- * @returns 32 bytes, ready to import as AES-GCM
  */
 export async function deriveVaultKeyBytes(seed: Uint8Array): Promise<Uint8Array> {
   return hkdf(seed, VAULT_KEY_INFO, 32);
@@ -300,9 +228,6 @@ export async function deriveVaultKeyBytes(seed: Uint8Array): Promise<Uint8Array>
  *
  * Separate from the signing key, and from every wrapping key, so that handing
  * one out never implies the others.
- *
- * @param seed The account seed
- * @returns An AES-GCM key for space keys and space records
  */
 export async function deriveVaultKey(seed: Uint8Array): Promise<CryptoKey> {
   return hkdfAesKey(seed, VAULT_KEY_INFO);
@@ -313,18 +238,9 @@ export async function deriveVaultKey(seed: Uint8Array): Promise<CryptoKey> {
  *
  * The key a wrap names lives in the storage of the origin that made it, so one
  * from another app is not merely likely to fail — it is unreachable from here.
- *
- * @param vault The account file
- * @param rpId This origin's relying-party id, usually its hostname
- * @returns The device wraps belonging to this origin
  */
 export function deviceWrapsFor(vault: AccountVault, rpId: string): ReadonlyArray<DeviceWrap> {
   return vault.wraps.filter((wrap): wrap is DeviceWrap => wrap.kind === 'device' && wrap.rpId === rpId);
-}
-
-/** Whether a passphrase would get anyone in. */
-export function hasPassphraseWrap(vault: AccountVault): boolean {
-  return vault.wraps.some((wrap) => wrap.kind === 'passphrase');
 }
 
 /**
@@ -338,10 +254,6 @@ export const CLI_PASSPHRASE_LABEL = 'CLI passphrase';
  *
  * Re-registering on an origin should leave one usable wrap rather than a pile of
  * stale ones, and a wrap whose credential is gone is only clutter.
- *
- * @param vault The account file
- * @param wrap The wrap to add
- * @returns The updated account file
  */
 export function withWrap(vault: AccountVault, wrap: SeedWrap): AccountVault {
   // One device wrap per origin: re-adding the shortcut should replace it, not
@@ -350,19 +262,4 @@ export function withWrap(vault: AccountVault, wrap: SeedWrap): AccountVault {
     existing.kind === 'device' && wrap.kind === 'device' && existing.rpId === wrap.rpId;
 
   return { ...vault, wraps: [...vault.wraps.filter((existing) => !superseded(existing)), wrap] };
-}
-
-/**
- * Removes a wrap by id.
- *
- * Removing the last one is allowed, and leaves the account in the state a new
- * one starts in: openable by its code and nothing else. The wraps are
- * shortcuts, not the keys to the building.
- *
- * @param vault The account file
- * @param id The wrap to remove
- * @returns The updated account file
- */
-export function withoutWrap(vault: AccountVault, id: string): AccountVault {
-  return { ...vault, wraps: vault.wraps.filter((wrap) => wrap.id !== id) };
 }

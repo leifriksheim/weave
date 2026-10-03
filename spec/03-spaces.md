@@ -1159,7 +1159,7 @@ For example, urgent tasks assigned to the account:
 ```
 
 Valid (`checkNotify`) when: `label` 1–120 characters, not blank; `collection`
-matches `^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$` and does not start with `sys.`;
+is a collection name ([02](02-records.md) §6.1, `^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$`) and does not start with `sys.`;
 `spaces` is `"all"` or 1–256 strings; `topic.field` is a valid topic, a
 field or `link:<role>` ([02](02-records.md) §8.1), and `topic.value` a string, number or boolean; `where`,
 when present, is a condition in the language of checks ([02](02-records.md)
@@ -1206,7 +1206,7 @@ not the account; and if `tags` is present, the version's `tags` include one of
 `tags[spaceId]`. No carrier shows a notification yet; the carried form is
 what a carrier needs to wake an app that is closed ([06](06-nodes-and-sessions.md) §4.4).
 
-_Source: `packages/core/src/space/notify.ts` (`checkNotify`, `whereHolds`), `packages/core/src/records/checks.ts` (`checkRecordCondition`, `recordHolds`), `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier"), `packages/core/tests/topics.test.ts` ("a subscription’s where")._
+_Source: `packages/core/src/space/notify.ts` (`checkNotify`, `whereHolds`), `packages/core/src/records/checks.ts` (`checkRecordCondition`, `recordHolds`), `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier"), `packages/core/tests/topics.test.ts` ("a subscription’s where", "names a collection the way a definition must")._
 
 > **Planned: devices deliver subscriptions.** Issue:
 > [#30](https://github.com/leifriksheim/weave/issues/30). Delivery moves to

@@ -7,11 +7,7 @@ import { styles, palette } from '../../styles';
 import { WatchBuilder } from './WatchBuilder';
 import { Empty, SectionHead, iconDot, list, row, section } from './parts';
 
-/**
- * What you asked to hear about in a space: your own, seen by nobody else,
- * unlike the space's automations, which everyone shares. Added here, paused
- * or removed in your account.
- */
+/** What you asked to hear about in a space: yours alone, paused or removed in your account */
 export function NotificationsView({
   space,
   collections,

@@ -6,6 +6,7 @@ import { isBot, nameOf, type People } from '../derive/people';
 import { takeBack, useContacts, useStanding } from '../contacts';
 import { Avatar } from '@weave/app-shared/Avatar';
 import { Modal } from '@weave/app-shared/Modal';
+import { useAction, useCopy } from '@weave/app-shared/action';
 
 /** What a name in a space needs to open its card: the space, who is in it, and where a space for two opens */
 interface PersonScope {
@@ -95,19 +96,13 @@ export function Person({
 function PersonCard({ did, scope, onClose }: { did: string; scope: PersonScope; onClose: () => void }) {
   const { space, people, roles, me } = scope;
   const contacts = useContacts();
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopy();
   // Asking puts them on the list at once, which would swap the confirmation for "In your contacts".
   const [asked, setAsked] = useState(false);
   const name = nameOf(did, people);
   const profile = people.get(did);
   const contact = contacts?.find((c) => c.did === did);
   const role = roles.get(did);
-
-  const copy = () =>
-    void globalThis.navigator.clipboard?.writeText(did).then(() => {
-      setCopied(true);
-      globalThis.setTimeout(() => setCopied(false), 1500);
-    });
 
   return (
     <Modal title={name} onClose={onClose}>
@@ -122,7 +117,7 @@ function PersonCard({ did, scope, onClose }: { did: string; scope: PersonScope; 
             {did}{' '}
             <button
               type="button"
-              onClick={copy}
+              onClick={() => copy(did)}
               data-variant="ghost"
               style={{ ...styles.linkButton, padding: '0 4px', fontSize: 12 }}
             >
@@ -180,19 +175,8 @@ function Standing({
 }) {
   const node = useNode();
   const standing = useStanding(contact);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { run: act, busy, error } = useAction();
   const { space, me, openSpace } = scope;
-  const act = async (action: () => Promise<unknown>) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await action();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-    setBusy(false);
-  };
   const called = contact.name !== name && contact.name !== contact.did ? ` as ${contact.name}` : '';
 
   if (standing === undefined) return <p style={styles.hint}>Loading…</p>;
@@ -275,19 +259,12 @@ function AskContact({
 }) {
   const node = useNode();
   const [note, setNote] = useState('');
-  const [asking, setAsking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const ask = async () => {
-    setAsking(true);
-    setError(null);
-    try {
+  const { run, busy: asking, error } = useAction();
+  const ask = () =>
+    run(async () => {
       await node.contacts.ask(space.id, did, note.trim() ? { note: note.trim() } : {});
       onAsked();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-      setAsking(false);
-    }
-  };
+    });
   return (
     <form
       style={styles.form}

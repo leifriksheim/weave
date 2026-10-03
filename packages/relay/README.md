@@ -14,7 +14,7 @@ server. Every always-on node (`weave serve`, `weave run`, and the host) runs
 the same relay on its own port, beside its `/peer` endpoint.
 
 ```bash
-npm start            # node signaling-server.mjs, on port 8787
+npm start            # node signaling-server.mjs, on port 8787; /health says {"ok":true}
 node signaling-server.mjs 9000
 ```
 
@@ -40,7 +40,9 @@ network: every socket from one IPv4 address, or one IPv6 /64, shares a
 username. A held one is reused while more than half its TTL remains, and a new
 one is minted after that. So asking again is free, and coturn's per-user quota
 caps a network rather than each request. IPv4-mapped IPv6 (`::ffff:a.b.c.d`)
-counts as the IPv4 address.
+counts as the IPv4 address. The relay can't tell a Weave peer from anyone
+else, so set coturn's own quotas too (`user-quota`, `total-quota`, `max-bps`);
+the Docker image's coturn is already capped that way.
 
 The limits the relay enforces, and what it does on each, are in
 [spec 04 §1.6](../../spec/04-network.md); the values are the constants at the

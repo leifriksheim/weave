@@ -1,7 +1,4 @@
-/**
- * @module calls
- * Voice and video calls in a space: `createCalls(node)`. See `calls.ts`.
- */
+/** Voice and video calls in a space: `createCalls(node)`. See `calls.ts`. */
 export { createCalls } from './calls.js';
 export type {
   Calls,

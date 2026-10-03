@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { message, useAction } from '@weave/app-shared/action';
 import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { useLive, useNode, useSpaces } from '@weaveprotocol/core/react';
 import {
@@ -16,13 +17,7 @@ import { ago } from '../../derive/time';
 import { styles, palette } from '../../styles';
 import { Person } from '../Person';
 
-/**
- * Apps someone made for this space, kept in it as `std.app` records — often
- * proposed by an agent. A proposal defines nothing: it says which collections
- * it needs, and what each would allow, worked out from its rules rather than
- * from what its author says. Someone whose role lets them add collections
- * adds it; from then on it opens here, drawn from its definitions.
- */
+/** Apps made for this space as `std.app` records, judged by their rules rather than their words. */
 export function useMadeApps(space: SpaceSummary): ReadonlyArray<NodeRecord<App>> {
   return (
     useLive(
@@ -102,35 +97,17 @@ function Proposal({
   onAdded: (key: string) => void;
 }) {
   const node = useNode();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { run, busy, error } = useAction();
   const [open, setOpen] = useState(false);
   const body = record.body;
   const review: AppReview | null = body ? reviewApp(body, collections, { apps: all, key: record.key }) : null;
 
-  const add = async () => {
-    setBusy(true);
-    setError(null);
-    try {
+  const add = () =>
+    run(async () => {
       await addApp(node, space.id, record.key);
       onAdded(record.key);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const remove = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await node.records.delete(space.id, record.key);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setBusy(false);
-    }
-  };
+    });
+  const remove = () => run(() => node.records.delete(space.id, record.key));
 
   const mine = record.createdBy === node.did;
   const changes = review?.needs.filter((need) => need.status === 'change') ?? [];
@@ -362,11 +339,7 @@ function AgentBadge() {
   );
 }
 
-/**
- * An added app. Its own screen when one of its collections, as the space
- * defines it, carries one — what the person who added it approved, not what
- * the proposal says now. Otherwise drawn from its definitions.
- */
+/** An added app: its own screen when its definition, as the space holds it, carries one. */
 export function MadeAppScreen({
   space,
   record,
@@ -444,7 +417,7 @@ function CopyTo({
           setSaid(null);
           copyApp(node, space.id, record.key, target.id).then(
             () => setSaid(`Proposed in ${target.name}`),
-            (e: unknown) => setSaid(e instanceof Error ? e.message : String(e)),
+            (e: unknown) => setSaid(message(e)),
           );
         }}
         style={{ ...styles.smallButton, height: 30 }}

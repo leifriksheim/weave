@@ -1,15 +1,10 @@
 /**
  * The standard nouns, and the positions that keep a hand-made order.
  */
-import { test, describe, afterEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { isRecord } from '../src/utils/guards.js';
 
-import { createNode } from '../src/node/node.js';
-import type { P2PNode } from '../src/node/types.js';
-import { createIdentityManager } from '../src/identity/identity-manager.js';
-import { createLocalRootSigner } from '../src/identity/root-signer.js';
-import { generateSeed } from '../src/identity/recovery-code.js';
 import {
   column,
   task,
@@ -29,26 +24,11 @@ import {
 } from '../src/schemas/index.js';
 import { checkStoredCollection, toJsonSchema } from '../src/schema/collection-def.js';
 import { describeCollection } from '../src/records/describe.js';
-import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import * as z from 'zod';
+import { person as somebody } from './helpers/person.js';
 
-const open: P2PNode[] = [];
-afterEach(async () => {
-  await Promise.all(open.splice(0).map((node) => node.close()));
-});
-
-async function person() {
-  const manager = createIdentityManager();
-  const me = await manager.fromSeed(generateSeed());
-  const node = await createNode({
-    signer: createLocalRootSigner(me, manager.getProvider()),
-    stores: memoryStores(),
-    watchIntervalMs: 0,
-  });
-  open.push(node);
-  return node;
-}
+const person = async () => (await somebody()).node;
 
 describe('positionBetween', () => {
   test('lands strictly between its neighbours, at either end, and never ends in 0', () => {

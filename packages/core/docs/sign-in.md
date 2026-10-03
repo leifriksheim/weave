@@ -43,7 +43,7 @@ summaries, and key `<id>` that account's vault. No other origin can edit it.
 ```
 <folder>/
   weave-account.json     the vault (spec 01 §10.2), or the version-1 form below
-  README.txt             explanation for humans, rewritten on each save
+  README.txt             explanation for humans
   stores/…               the spaces
 ```
 
@@ -175,11 +175,10 @@ Registration (`navigator.credentials.create`):
 | `pubKeyCredParams`              | ES256 (−7), RS256 (−257)                                                                                                                                          |
 | `authenticatorSelection`        | `residentKey: "required"`, `requireResidentKey: true`, `userVerification: "required"`; `authenticatorAttachment: "platform"` when a platform authenticator exists |
 | `hints`                         | `["client-device"]` when preferring the platform authenticator                                                                                                    |
-| `extensions.prf.eval.first`     | UTF-8 `weave-protocol-key-v1`                                                                                                                                     |
 
 Assertion (`navigator.credentials.get`): random 32-byte challenge,
 `userVerification: "required"`, `allowCredentials` = the wrap's `credentialId`
-when known, and the same PRF request. Nothing reads the PRF output.
+when known. Neither asks for the PRF extension.
 
 Renaming an account asks the provider to relabel the passkey through the
 WebAuthn Signal API (`PublicKeyCredential.signalCurrentUserDetails` with the
@@ -195,7 +194,7 @@ the place's stores for that account ([stores](node.md#stores)) and the configure
 page holds the vault key as a non-extractable `CryptoKey`; only a node that
 must derive from it gets its bytes. The
 session (`WeaveSession`) is `{ account, did, sessionDid, node }`. The seed stays
-inside the auth object; `accountPassword()` returns it as a recovery code.
+inside the auth object; `recoveryCode()` returns it as a recovery code.
 
 The account's name follows the account: on every `account` event the node's
 `account.profile()` is read, and a different name is adopted locally (the vault

@@ -1,16 +1,11 @@
 /**
  * Links between records, and the sys.* annotation library.
  */
-import { test, describe, afterEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as z from 'zod';
 
-import { createNode } from '../src/node/node.js';
 import { runAction } from '../src/node/actions.js';
-import type { P2PNode } from '../src/node/types.js';
-import { createIdentityManager } from '../src/identity/identity-manager.js';
-import { createLocalRootSigner } from '../src/identity/root-signer.js';
-import { generateSeed } from '../src/identity/recovery-code.js';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
 import { createSigner } from '../src/schema/signer.js';
 import { didToPublicKey, publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
@@ -23,30 +18,10 @@ import { team } from '../src/space/presets.js';
 import { joined } from './helpers/joined.js';
 import { hold } from './helpers/hold.js';
 import { until } from './helpers/until.js';
+import type { StoreFactory } from '../src/node/stores.js';
+import { person as somebody } from './helpers/person.js';
 
-const open: P2PNode[] = [];
-afterEach(async () => {
-  await Promise.all(open.splice(0).map((node) => node.close()));
-});
-
-async function person(hub?: FakeHub, stores = memoryStores()) {
-  const manager = createIdentityManager();
-  const me = await manager.fromSeed(generateSeed());
-  const node = await createNode({
-    signer: createLocalRootSigner(me, manager.getProvider()),
-    stores,
-    watchIntervalMs: 0,
-    ...(hub
-      ? {
-          network: {
-            transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)],
-          },
-        }
-      : {}),
-  });
-  open.push(node);
-  return node;
-}
+const person = async (hub?: FakeHub, stores?: StoreFactory) => (await somebody(hub, { stores })).node;
 
 describe('links', () => {
   test('a reaction points at a todo, and stays on it when the todo is ticked', async () => {

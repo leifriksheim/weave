@@ -3,14 +3,10 @@
  * set by whoever manages it and carried in its invites — so two people whose
  * apps use different relays still find each other.
  */
-import { test, describe, afterEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createNode } from '../src/node/node.js';
 import type { P2PNode } from '../src/node/types.js';
-import { createIdentityManager } from '../src/identity/identity-manager.js';
-import { createLocalRootSigner } from '../src/identity/root-signer.js';
-import { generateSeed } from '../src/identity/recovery-code.js';
 import {
   checkRelays,
   replayAccess,
@@ -21,10 +17,12 @@ import {
 import { parseSpaceInvite } from '../src/space/space-manager.js';
 import { team } from '../src/space/presets.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
-import { memoryStores } from './helpers/memory-stores.js';
 import { joined } from './helpers/joined.js';
 import { hold } from './helpers/hold.js';
 import { until } from './helpers/until.js';
+import { person as somebody } from './helpers/person.js';
+
+const person = async (hub: FakeHub, relays: string[]) => (await somebody(hub, { relays })).node;
 
 const admin: Role = { name: 'admin', rank: 100, permissions: ['*'] };
 const member: Role = { name: 'member', rank: 0, permissions: [] };
@@ -75,28 +73,6 @@ describe('a space’s relays, in its history', () => {
     assert.equal(replayAccess(genesis, [bad]).status(bad.id)?.status, 'dropped');
   });
 });
-
-const open: P2PNode[] = [];
-afterEach(async () => {
-  await Promise.all(open.splice(0).map((node) => node.close()));
-});
-
-/** Someone whose app meets on `relays` — and, in this test, on a shared fake hub too */
-async function person(hub: FakeHub, relays: string[]) {
-  const manager = createIdentityManager();
-  const me = await manager.fromSeed(generateSeed());
-  const node = await createNode({
-    signer: createLocalRootSigner(me, manager.getProvider()),
-    stores: memoryStores(),
-    watchIntervalMs: 0,
-    network: {
-      relays,
-      transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)],
-    },
-  });
-  open.push(node);
-  return node;
-}
 
 const relaysOf = async (node: P2PNode, space: string) => (await node.spaces.access(space)).relays;
 

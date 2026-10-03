@@ -1,5 +1,4 @@
 /**
- * @module mesh
  * One set of connections for every space a node has open.
  *
  * A node holds one socket per relay and one WebRTC connection per peer, however

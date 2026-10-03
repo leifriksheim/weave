@@ -1,5 +1,4 @@
 /**
- * @module space/notify
  * Subscriptions: "let me know when…", across spaces, by nodes that can't read.
  *
  * A person says what they want to hear about — new records in a collection,
@@ -37,6 +36,7 @@ import { parseUCAN } from '../identity/ucan.js';
 import { checkTopics, topicKey, topicTag, topicValues } from '../records/topics.js';
 import { checkRecordCondition, recordHolds, type Condition } from '../records/checks.js';
 import { canonicalize } from '../schema/expression.js';
+import { COLLECTION_NAME, schemaProblem, type JsonSchema } from '../schema/collection-def.js';
 import { isObject } from '../utils/guards.js';
 
 /** Subscriptions as the person made them, in the account registry: key `notify:<id>` */
@@ -119,40 +119,44 @@ export interface CarriedSubscription {
   readonly since: string;
 }
 
-const COLLECTION = /^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$/;
+const choiceValue = { type: ['string', 'number', 'boolean'] };
+/** A subscription's shape; what it means is checked in `checkNotify` */
+const NOTIFY: JsonSchema = {
+  type: 'object',
+  properties: {
+    label: { type: 'string', pattern: '\\S', maxLength: 120 },
+    collection: { type: 'string', pattern: COLLECTION_NAME.source },
+    spaces: {
+      anyOf: [{ const: 'all' }, { type: 'array', minItems: 1, maxItems: 256, items: { type: 'string' } }],
+    },
+    topic: {
+      type: 'object',
+      properties: { field: { type: 'string' }, value: choiceValue },
+      required: ['field', 'value'],
+    },
+    others: { type: 'boolean' },
+    paused: { type: 'boolean' },
+    since: { type: 'string' },
+    app: {
+      type: 'object',
+      properties: { origin: { type: 'string' }, name: { type: 'string', maxLength: 80 } },
+      required: ['origin'],
+    },
+  },
+  required: ['label', 'collection', 'spaces', 'since'],
+};
 
 /** Why a subscription can't be kept, or null */
 export function checkNotify(when: unknown): string | null {
-  if (!isObject(when)) return 'A subscription must be an object';
+  const shape = schemaProblem(NOTIFY, when);
+  if (shape || !isObject(when)) return shape ?? 'A subscription must be an object';
   const w = when;
-  if (typeof w.label !== 'string' || !w.label.trim() || w.label.length > 120)
-    return 'label is what the notification says: some text, at most 120 characters';
-  if (typeof w.collection !== 'string' || !COLLECTION.test(w.collection) || w.collection.startsWith('sys.'))
-    return 'collection must be one of the space’s collections, like "app.chat.message"';
-  if (
-    w.spaces !== 'all' &&
-    !(
-      Array.isArray(w.spaces) &&
-      w.spaces.length > 0 &&
-      w.spaces.length <= 256 &&
-      w.spaces.every((s) => typeof s === 'string')
-    )
-  ) {
-    return 'spaces must be "all" or a list of space ids';
-  }
-  if (w.topic !== undefined) {
-    const t = w.topic;
-    if (!isObject(t) || typeof t.field !== 'string' || checkTopics([t.field]) !== null)
-      return 'topic.field must be a field name';
-    if (!['string', 'number', 'boolean'].includes(typeof t.value))
-      return 'topic.value must be text, a number or yes/no';
-  }
-  if (w.others !== undefined && typeof w.others !== 'boolean') return 'others must be true or false';
+  if (String(w.collection).startsWith('sys.')) return 'collection must be one of the space’s collections';
+  if (isObject(w.topic) && checkTopics([w.topic.field]) !== null) return 'topic.field must be a field name';
   if (w.where !== undefined) {
     const problem = checkRecordCondition(w.where);
     if (problem) return problem;
   }
-  if (w.paused !== undefined && typeof w.paused !== 'boolean') return 'paused must be true or false';
   if (w.open !== undefined) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-base-to-string -- URL stringifies what it is given; String() keeps what passes unchanged
@@ -166,14 +170,8 @@ export function checkNotify(when: unknown): string | null {
       return 'open must be a web address';
     }
   }
-  if (typeof w.since !== 'string' || !Number.isFinite(Date.parse(w.since))) return 'since must be a date';
-  if (w.app !== undefined) {
-    const a = w.app;
-    if (!isObject(a) || typeof a.origin !== 'string' || !isOrigin(a.origin))
-      return 'app.origin must be a web origin';
-    if (a.name !== undefined && (typeof a.name !== 'string' || a.name.length > 80))
-      return 'app.name must be text, at most 80 characters';
-  }
+  if (!Number.isFinite(Date.parse(String(w.since)))) return 'since must be a date';
+  if (isObject(w.app) && !isOrigin(String(w.app.origin))) return 'app.origin must be a web origin';
   return null;
 }
 
@@ -345,7 +343,8 @@ export function readCarried(body: unknown): CarriedSubscription | null {
 /** `checkNotify` checks the fields a carried subscription shares with the person's; the tags are checked here. */
 function isCarried(body: unknown): body is CarriedSubscription {
   if (!isObject(body) || body.v !== 1) return false;
-  if (checkNotify({ ...body, topic: undefined }) !== null) return false;
+  const { topic: _topic, ...shared } = body;
+  if (checkNotify(shared) !== null) return false;
   if (body.tags === undefined) return true;
   return (
     isObject(body.tags) &&
@@ -366,6 +365,18 @@ function rootOf(version: Expression): string {
 /** How long after it was written a record may still notify: a carrier catching up on last week stays quiet */
 const NOTIFY_WITHIN_MS = 24 * 60 * 60 * 1000;
 
+/** What a carrier and an app both check: the subscription is on, looks at the space, and the record is new enough */
+function inWindow(
+  sub: { readonly paused?: boolean; readonly spaces: NotifySpaces; readonly since: string },
+  space: string,
+  createdAt: string,
+  now: number,
+): boolean {
+  if (sub.paused || (sub.spaces !== 'all' && !sub.spaces.includes(space))) return false;
+  const written = Date.parse(createdAt);
+  return Number.isFinite(written) && written >= Date.parse(sub.since) && now - written <= NOTIFY_WITHIN_MS;
+}
+
 /**
  * Whether a record that just arrived in a space is one a subscription asks
  * about — decided from its outside alone.
@@ -377,12 +388,8 @@ export function matchesSubscription(
   account: string,
   now = Date.now(),
 ): boolean {
-  if (sub.paused || version.collection !== sub.collection) return false;
-  if (version.seq !== 0 || version.deleted) return false;
-  if (sub.spaces !== 'all' && !sub.spaces.includes(spaceId)) return false;
-  const written = Date.parse(version.createdAt);
-  if (!Number.isFinite(written) || written < Date.parse(sub.since) || now - written > NOTIFY_WITHIN_MS)
-    return false;
+  if (version.collection !== sub.collection || version.seq !== 0 || version.deleted) return false;
+  if (!inWindow(sub, spaceId, version.createdAt, now)) return false;
   if (sub.others && rootOf(version) === account) return false;
   if (sub.tags) {
     const wanted = sub.tags[spaceId];
@@ -418,12 +425,8 @@ export function matchesRecord(
   account: string,
   now = Date.now(),
 ): boolean {
-  if (when.paused || !record.verified || record.deleted || record.collection !== when.collection)
-    return false;
-  if (when.spaces !== 'all' && !when.spaces.includes(record.space)) return false;
-  const written = Date.parse(record.createdAt);
-  if (!Number.isFinite(written) || written < Date.parse(when.since) || now - written > NOTIFY_WITHIN_MS)
-    return false;
+  if (!record.verified || record.deleted || record.collection !== when.collection) return false;
+  if (!inWindow(when, record.space, record.createdAt, now)) return false;
   if ((when.others ?? true) && record.createdBy === account) return false;
   if (when.topic && !topicValues(record.body, when.topic.field, record.links).includes(when.topic.value))
     return false;

@@ -231,6 +231,18 @@ export const styles = {
     fontWeight: 500,
     whiteSpace: 'nowrap',
   },
+  /** A small button in the one accent, for the one thing to do next */
+  darkSmall: {
+    height: 32,
+    padding: '0 12px',
+    borderRadius: radius.md,
+    border: `1px solid ${ink.strong}`,
+    backgroundColor: ink.strong,
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 500,
+    whiteSpace: 'nowrap',
+  },
 
   todoList: { listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 },
   emptyState: {

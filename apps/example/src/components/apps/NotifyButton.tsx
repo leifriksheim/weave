@@ -7,14 +7,7 @@ import { styles, palette } from '../../styles';
 import type { AppEntry } from './entries';
 import { WatchBuilder } from '../automations/WatchBuilder';
 
-/**
- * The bell on an open app. It offers what the app says is worth hearing
- * about, in this space, at two levels when the app has both: everything new,
- * or only what names you ("Mentions me", "Replies to me"), and anything more
- * particular built from the app's collections ("a task whose priority is at
- * least 3"). Turning one off, or pausing it, happens in the account home,
- * which the menu opens.
- */
+/** The bell on an open app: what it says is worth hearing about, managed in the account home. */
 export function NotifyButton({
   space,
   app,

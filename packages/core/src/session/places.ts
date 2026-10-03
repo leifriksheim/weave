@@ -48,7 +48,7 @@ export async function browserPlace(): Promise<Place> {
 }
 
 /** Wraps a folder as a place. */
-export function folderPlace(directory: DirectoryHandleLike): Place {
+function folderPlace(directory: DirectoryHandleLike): Place {
   return { kind: 'folder', store: createFolderAccountStore(directory), directory };
 }
 
@@ -114,7 +114,6 @@ export async function inspectPod(pod: Place, current: Place, did: string): Promi
  * A pod's registry is sealed under the vault key, so someone who copies the
  * folder cannot read the private spaces in it.
  *
- * @param account Whose data
  * @param folder The unlocked pod and its vault key, when the account lives in one
  */
 export function storesFor(
@@ -134,9 +133,9 @@ export function describeStores(
     : { indexedDB: `weave:${account.dataPath.replace(/\//g, ':')}` };
 }
 
-/** Deletes the IndexedDB databases an account kept in this browser. */
-export async function deleteBrowserData(account: AccountSummary): Promise<void> {
-  const prefix = `weave:${account.dataPath.replace(/\//g, ':')}`;
+/** Deletes the IndexedDB databases an account kept in this browser, or every one whose name starts with a prefix. */
+export async function deleteBrowserData(account: AccountSummary | string): Promise<void> {
+  const prefix = typeof account === 'string' ? account : `weave:${account.dataPath.replace(/\//g, ':')}`;
   const databases = (await globalThis.indexedDB.databases?.()) ?? [];
   await Promise.all(
     databases

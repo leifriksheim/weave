@@ -25,8 +25,8 @@ import { parseSpaceInvite, type P2PNode, type StorageAdapter } from '@weaveproto
 import { createAccount, openHome, unlock } from './home.js';
 import { startBotNode } from './agent.js';
 import { fileSpend, type Price, type Think } from './agent-chat.js';
-import { runRules } from './bot-runner.js';
-import { isRecord } from './json.js';
+import { capEachOf, runRules } from './bot-runner.js';
+import { isRecord, messageOf } from './json.js';
 
 /** How the bots a host runs think */
 export interface BotModel {
@@ -127,9 +127,7 @@ export function createHostedBots(options: {
   const reopening = all().then((bots) =>
     Promise.all(
       bots.map((kept) =>
-        open(kept).catch((error: unknown) =>
-          log(`bot ${kept.name} could not start: ${error instanceof Error ? error.message : String(error)}`),
-        ),
+        open(kept).catch((error: unknown) => log(`bot ${kept.name} could not start: ${messageOf(error)}`)),
       ),
     ),
   );
@@ -208,8 +206,7 @@ export function createHostedBots(options: {
               ...(options.model.plain ? { plain: true } : {}),
               spend,
               dailyCap: options.model.dailyCap,
-              // A quarter of the day for each person who sets it off, as `weave agent --bot` does.
-              capEach: options.model.dailyCap / 4,
+              capEach: capEachOf(options.model.dailyCap),
               log: (line) => log(`bot ${kept.name}:${line}`),
             }),
           );

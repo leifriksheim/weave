@@ -1,5 +1,4 @@
 /**
- * @module schemas/rules
  * Rules: "when a channel has more than 10 messages, post in it". Not the
  * rules a definition carries, which every peer checks (spec 02 §7) and which
  * can only refuse; these act, as whoever runs them.
@@ -23,15 +22,16 @@
  * Not protocol: a peer that has never heard of rules syncs and judges these
  * records like any other. See `packages/core/docs/rules.md`.
  */
-import type { DefineCollection, NodeRecord, P2PNode, SpaceAccess } from '../node/types.js';
-import { nameOf, plainQuery, type Query, type QueryRecord, type Typed } from '../query/types.js';
+import type { NodeRecord, P2PNode, SpaceAccess } from '../node/types.js';
+import { nameOf, plainQuery, type BodyOf, type Query, type QueryRecord } from '../query/types.js';
 import { checkQuery } from '../query/filter.js';
 import { checkRecordCondition, recordHolds, type Condition } from '../records/checks.js';
 import { quickAddBody } from '../schema/quick-add.js';
+import { schemaProblem, type JsonSchema } from '../schema/collection-def.js';
 import { roleHolds } from '../space/roles.js';
 import { isObject } from '../utils/guards.js';
 import { checkCron, cronMatches } from './cron.js';
-import { about, one, person, text, when as moment, words } from './fragments.js';
+import { about, define, one, person, text, typed, when as moment, words } from './fragments.js';
 
 /** A link a rule's new record carries: to a record by key, or to `$it`, the record the rule holds for */
 export interface RuleLink {
@@ -83,16 +83,9 @@ export interface Rule {
   readonly since: string;
 }
 
-export interface RuleRun {
-  /** What it did, in words */
-  readonly did: string;
-  readonly ok: boolean;
-  readonly at: string;
-  /** The record it wrote, when it wrote a new one: nothing a rule wrote sets off a rule */
-  readonly made?: string;
-}
+export type RuleRun = BodyOf<typeof ruleRun>;
 
-export const rule: DefineCollection & Typed<Rule> = {
+export const rule = typed<Rule>()({
   name: 'std.rule',
   title: 'Rule',
   description: 'When records in the space are a certain way, or at set times, do something.',
@@ -113,9 +106,9 @@ export const rule: DefineCollection & Typed<Rule> = {
   // `instruct`: whose rules a bot runs (`by`).
   permissions: ['moderate', 'instruct'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
-};
+});
 
-export const ruleRun: DefineCollection & Typed<RuleRun> = {
+export const ruleRun = define({
   name: 'std.rule-run',
   title: 'Rule run',
   description: 'A rule acted on a record: once each, whichever device did it.',
@@ -130,19 +123,13 @@ export const ruleRun: DefineCollection & Typed<RuleRun> = {
   },
   permissions: ['moderate'],
   rules: { onePer: ['link:rule', 'link:about'], edit: 'creator', delete: ['creator', 'can:moderate'] },
-};
+});
 
 /** Where a bot, an agent or anyone's work on something stands */
 export type ActivityState = 'working' | 'waiting' | 'done' | 'failed';
 export const ACTIVITY_STATES: ReadonlyArray<ActivityState> = ['working', 'waiting', 'done', 'failed'];
 
-export interface Activity {
-  readonly state: ActivityState;
-  /** What it is doing, in a few words: "Replying", "Making an app" */
-  readonly label?: string;
-  /** When it came to this state */
-  readonly at: string;
-}
+export type Activity = BodyOf<typeof activity>;
 
 /**
  * Someone at work on a record, for apps to show while it lasts: "My bot is
@@ -150,7 +137,7 @@ export interface Activity {
  * record, changed in place as the work goes on. Its writer's word, like a
  * status, and only theirs to change.
  */
-export const activity: DefineCollection & Typed<Activity> = {
+export const activity = define({
   name: 'std.activity',
   title: 'Activity',
   description: 'Someone at work on a record: working, waiting, done or failed.',
@@ -165,7 +152,7 @@ export const activity: DefineCollection & Typed<Activity> = {
   },
   links: { about: about('What the work is on') },
   rules: { edit: 'creator', delete: 'creator', onePer: ['@author', 'link:about'] },
-};
+});
 
 /**
  * How long a `working` or `waiting` activity is believed without a change:
@@ -217,74 +204,65 @@ export const ME = '$me';
 /** The permission a maker needs in a space for a bot there to run their rules */
 export const INSTRUCT = `${rule.name}/instruct`;
 
-const KINDS = new Set(['notify', 'add', 'set', 'ask']);
-
-/** Why this can't be a rule's action, or null */
-function checkAction(then: unknown): string | null {
-  if (!isObject(then) || typeof then.kind !== 'string' || !KINDS.has(then.kind))
-    return `then.kind must be one of ${[...KINDS].join(', ')}`;
-  if (then.kind === 'set') {
-    if (typeof then.field !== 'string' || !then.field) return 'then.field must name a field';
-    if (!['string', 'number', 'boolean'].includes(typeof then.value))
-      return 'then.value must be a text, number or yes/no';
-    return null;
-  }
-  if (typeof then.text !== 'string' || !then.text.trim()) return 'then.text must say something';
-  if (then.kind === 'add') {
-    if (typeof then.collection !== 'string' || !then.collection)
-      return 'then.collection must name a collection';
-    const links: unknown = then.links;
-    if (
-      links !== undefined &&
-      !(
-        Array.isArray(links) &&
-        links.every(
-          (l) => isObject(l) && typeof l.rel === 'string' && !!l.rel && typeof l.to === 'string' && !!l.to,
-        )
-      )
-    )
-      return `then.links must be a list of { rel, to }, where to is a record's key or "${IT}"`;
-  }
-  return null;
-}
-
-/** Why this can't be what sets a rule off, or null */
-function checkWhen(when: Record<string, unknown>): string | null {
-  const query = checkQuery(when.query);
-  if (query) return `when.query: ${query}`;
-  if (when.holds !== undefined) {
-    const holds = checkRecordCondition(when.holds, 'when.holds', { included: true });
-    if (holds) return holds;
-  }
-  const from: unknown = when.from;
-  if (from !== undefined && !(Array.isArray(from) && from.every((r) => typeof r === 'string' && !!r)))
-    return 'when.from must be a list of role names';
-  return null;
-}
+const said = { type: 'string', pattern: '\\S' };
+const named = { type: 'string', minLength: 1 };
+const saying = { type: 'object', properties: { text: said }, required: ['text'] };
+/** Each kind of action's shape, which the stored schema leaves open */
+const ACTIONS: Readonly<Record<string, JsonSchema>> = {
+  notify: saying,
+  ask: saying,
+  add: {
+    type: 'object',
+    properties: {
+      collection: named,
+      text: said,
+      links: {
+        type: 'array',
+        items: { type: 'object', properties: { rel: named, to: named }, required: ['rel', 'to'] },
+      },
+    },
+    required: ['collection', 'text'],
+  },
+  set: {
+    type: 'object',
+    properties: { field: named, value: { type: ['string', 'number', 'boolean'] } },
+    required: ['field', 'value'],
+  },
+};
+/** A rule's shape, with what sets it off spelled out */
+const RULE: JsonSchema = {
+  ...rule.schema,
+  properties: {
+    ...rule.schema.properties,
+    when: { type: 'object', properties: { from: { type: 'array', items: named } } },
+  },
+};
 
 /** Why this can't be a rule, or null when it can */
 export function checkRule(value: unknown): string | null {
   if (!isObject(value)) return 'A rule must be an object';
+  const shape = schemaProblem(RULE, value);
+  if (shape) return shape;
   if (typeof value.name !== 'string' || !value.name.trim()) return 'A rule needs a name';
   if (value.when === undefined && value.every === undefined)
     return 'A rule needs a when: { query, holds? }, an every, or both';
-  if (value.when !== undefined) {
-    if (!isObject(value.when)) return 'when must be { query, holds?, from? }';
-    const when = checkWhen(value.when);
-    if (when) return when;
+  if (isObject(value.when)) {
+    const query = checkQuery(value.when.query);
+    if (query) return `when.query: ${query}`;
+    const holds =
+      value.when.holds === undefined
+        ? null
+        : checkRecordCondition(value.when.holds, 'when.holds', { included: true });
+    if (holds) return holds;
   }
-  if (value.every !== undefined) {
-    if (typeof value.every !== 'string') return 'every must be five cron fields';
-    const every = checkCron(value.every);
-    if (every) return `every: ${every}`;
-  }
-  const then = checkAction(value.then);
-  if (then) return then;
-  if (isObject(value.then) && value.then.kind === 'set' && value.when === undefined)
-    return 'A rule that changes a record needs a when';
-  if (value.by !== undefined && (typeof value.by !== 'string' || !value.by)) return "by must be a bot's DID";
-  if (value.picked !== undefined && !isObject(value.picked)) return 'picked must be an object';
-  if (value.paused !== undefined && typeof value.paused !== 'boolean') return 'paused must be true or false';
+  const every = typeof value.every === 'string' ? checkCron(value.every) : null;
+  if (every) return `every: ${every}`;
+  const then = value.then;
+  const action = isObject(then) && typeof then.kind === 'string' ? ACTIONS[then.kind] : undefined;
+  if (!isObject(then) || !action) return `then.kind must be one of ${Object.keys(ACTIONS).join(', ')}`;
+  const actionShape = schemaProblem(action, then, 'then');
+  if (actionShape) return actionShape;
+  if (then.kind === 'set' && value.when === undefined) return 'A rule that changes a record needs a when';
   if (typeof value.since !== 'string' || !Number.isFinite(Date.parse(value.since)))
     return 'since must be a date';
   return null;
@@ -649,7 +627,6 @@ export interface StartRulesOptions extends RunRulesOptions {
  * Runs the rules `account` runs, in every space it follows, until stopped:
  * once at the start, after each change in a space, and at the times rules
  * name. The one loop every runner uses, an app, `weave agent` or a bot.
- * @returns Stops it
  */
 export function startRules(node: P2PNode, options: StartRulesOptions): () => void {
   const { account } = options;

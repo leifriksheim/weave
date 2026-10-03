@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { message, useAction, useCopy } from './action';
 import qrcode from 'qrcode-generator';
 import type { FundOffer, FundPayment, HostPlan, PayAnswer } from '@weaveprotocol/core';
 import { Glyph } from './Feature';
@@ -120,8 +121,7 @@ type Step = 'choose' | 'checkout' | 'done' | Request;
  */
 function usePaying(paid: () => Promise<boolean>) {
   const [step, setStep] = useState<Step>('choose');
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  const { run, busy, error: problem } = useAction();
 
   // Once paying has started, the host's word is what moves it on.
   useEffect(() => {
@@ -137,25 +137,21 @@ function usePaying(paid: () => Promise<boolean>) {
 
   const begin = (method: 'checkout' | 'request', start: () => Promise<PayAnswer>) => {
     const tab = method === 'checkout' ? window.open('about:blank', '_blank') : null;
-    setBusy(true);
-    setProblem(null);
-    void start()
-      .then((answer) => {
-        if ('request' in answer) {
-          tab?.close();
-          return setStep(answer.request);
-        }
-        setStep('checkout');
-        if (!tab) return void window.open(answer.checkout, '_blank', 'noopener');
-        // Cut the tab loose first: the provider's page can't reach back into this one.
-        tab.opener = null;
-        tab.location.href = answer.checkout;
-      })
-      .catch((error: unknown) => {
+    void run(async () => {
+      const answer = await start().catch((error: unknown) => {
         tab?.close();
-        setProblem(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => setBusy(false));
+        throw error;
+      });
+      if ('request' in answer) {
+        tab?.close();
+        return setStep(answer.request);
+      }
+      setStep('checkout');
+      if (!tab) return void window.open(answer.checkout, '_blank', 'noopener');
+      // Cut the tab loose first: the provider's page can't reach back into this one.
+      tab.opener = null;
+      tab.location.href = answer.checkout;
+    });
   };
   return { step, setStep, busy, problem, begin };
 }
@@ -421,9 +417,9 @@ function Pulse() {
 export function RemindMe({ remind }: { remind: (email: string) => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState('');
-  const [state, setState] = useState<'idle' | 'busy' | 'asked'>('idle');
-  const [problem, setProblem] = useState<string | null>(null);
-  if (state === 'asked')
+  const [asked, setAsked] = useState(false);
+  const { run, busy, error: problem } = useAction();
+  if (asked)
     return <p style={{ fontSize: 13, color: palette.ink.muted }}>Check your inbox for a link to confirm.</p>;
   if (!open)
     return (
@@ -435,15 +431,7 @@ export function RemindMe({ remind }: { remind: (email: string) => Promise<void> 
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        setState('busy');
-        setProblem(null);
-        remind(email.trim()).then(
-          () => setState('asked'),
-          (error: unknown) => {
-            setState('idle');
-            setProblem(error instanceof Error ? error.message : String(error));
-          },
-        );
+        void run(() => remind(email.trim()).then(() => setAsked(true)));
       }}
       style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
     >
@@ -460,7 +448,7 @@ export function RemindMe({ remind }: { remind: (email: string) => Promise<void> 
         />
         <button
           type="submit"
-          disabled={state === 'busy' || !email.trim()}
+          disabled={busy || !email.trim()}
           data-variant="quiet"
           style={{ ...styles.smallButton, height: 36 }}
         >
@@ -477,7 +465,7 @@ function PaymentRequest({ request, onBack }: { request: Request; onBack: () => v
   const [wallet, setWallet] = useState<Eip1193 | null>(null);
   const [sending, setSending] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [problem, setProblem] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopy();
 
   useEffect(() => {
     void browserWallet().then(setWallet);
@@ -526,12 +514,7 @@ function PaymentRequest({ request, onBack }: { request: Request; onBack: () => v
           {network && <span style={{ fontSize: 13, color: palette.ink.muted }}>on {network}</span>}
           {to && (
             <button
-              onClick={() =>
-                void navigator.clipboard.writeText(to).then(() => {
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1500);
-                })
-              }
+              onClick={() => copy(to)}
               style={{ ...styles.linkButton, padding: 0, marginTop: 6, textAlign: 'left', fontSize: 12 }}
             >
               To <code>{`${to.slice(0, 6)}…${to.slice(-4)}`}</code> · {copied ? 'Copied' : 'Copy address'}
@@ -666,5 +649,5 @@ async function sendTransfer(wallet: Eip1193, evm: NonNullable<Request['evm']>): 
 function walletError(error: unknown): string {
   const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : null;
   if (code === 4001) return 'Cancelled in the wallet';
-  return error instanceof Error ? error.message : String(error);
+  return message(error);
 }

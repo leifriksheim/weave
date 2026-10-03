@@ -16,19 +16,17 @@ import {
   person,
   placeRef,
   text,
-  typed,
+  define,
   words,
-  type ImageRef,
-  type Money,
-  type Place,
   people,
 } from '../fragments.js';
+import type { BodyOf } from '../../query/types.js';
 
 /**
  * An expense someone paid for a group, and how it splits. Every version is
  * kept, since who changed an amount matters when settling up.
  */
-export const expense = typed<Expense>()({
+export const expense = define({
   name: 'std.expense',
   title: 'Expense',
   description: 'Something one person paid for a group, and how it is split.',
@@ -60,19 +58,10 @@ export const expense = typed<Expense>()({
   history: 'all',
   topics: ['paidBy', 'owedBy'],
 });
-export interface Expense {
-  readonly title: string;
-  readonly amount: Money;
-  readonly paidBy: string;
-  readonly split?: ReadonlyArray<{ readonly did: string; readonly share?: string }>;
-  readonly date?: string;
-  readonly note?: string;
-  /** Accounts that owe a share: the people in `split` */
-  readonly owedBy?: ReadonlyArray<string>;
-}
+export type Expense = BodyOf<typeof expense>;
 
 /** Money paid back between two people. Once written, who and how much stay as they are. */
-export const settlement = typed<Settlement>()({
+export const settlement = define({
   name: 'std.settlement',
   title: 'Settlement',
   description: 'Money paid back from one person to another.',
@@ -90,16 +79,10 @@ export const settlement = typed<Settlement>()({
   rules: { ...own, fixed: ['from', 'to', 'amount'] },
   topics: ['from', 'to'],
 });
-export interface Settlement {
-  readonly from: string;
-  readonly to: string;
-  readonly amount: Money;
-  readonly date?: string;
-  readonly note?: string;
-}
+export type Settlement = BodyOf<typeof settlement>;
 
 /** A bank account, a card, a wallet: what transactions are `in`. */
-export const moneyAccount = typed<MoneyAccount>()({
+export const moneyAccount = define({
   name: 'std.money-account',
   title: 'Account',
   description: 'A bank account, card or wallet that transactions are in.',
@@ -113,14 +96,10 @@ export const moneyAccount = typed<MoneyAccount>()({
     required: ['name', 'currency'],
   },
 });
-export interface MoneyAccount {
-  readonly name: string;
-  readonly currency: string;
-  readonly kind?: string;
-}
+export type MoneyAccount = BodyOf<typeof moneyAccount>;
 
 /** Money in or out of an account: negative amounts are out. */
-export const transaction = typed<Transaction>()({
+export const transaction = define({
   name: 'std.transaction',
   title: 'Transaction',
   description: 'Money in or out of an account.',
@@ -138,17 +117,10 @@ export const transaction = typed<Transaction>()({
   },
   links: { in: one(['std.money-account'], 'The account') },
 });
-export interface Transaction {
-  readonly amount: Money;
-  readonly date: string;
-  readonly payee?: string;
-  readonly category?: string;
-  readonly note?: string;
-  readonly cleared?: boolean;
-}
+export type Transaction = BodyOf<typeof transaction>;
 
 /** Something for sale, to give away or to lend. */
-export const listing = typed<Listing>()({
+export const listing = define({
   name: 'std.listing',
   title: 'Listing',
   description: 'Something for sale, to give away or to lend.',
@@ -167,20 +139,13 @@ export const listing = typed<Listing>()({
   permissions: ['moderate'],
   rules: authored,
 });
-export interface Listing {
-  readonly title: string;
-  readonly description?: string;
-  readonly price?: Money;
-  readonly images?: ReadonlyArray<ImageRef>;
-  readonly status?: 'available' | 'reserved' | 'sold';
-  readonly place?: Place;
-}
+export type Listing = BodyOf<typeof listing>;
 
 /**
  * An order for listings. Only the buyer changes it; the seller answers with
  * `std.order-update`s, so the two never edit the same record.
  */
-export const order = typed<Order>()({
+export const order = define({
   name: 'std.order',
   title: 'Order',
   description: 'An order for things listed: what, how many, for how much.',
@@ -207,20 +172,10 @@ export const order = typed<Order>()({
   rules: own,
   topics: ['respondingTo'],
 });
-export interface Order {
-  readonly items: ReadonlyArray<{
-    readonly title: string;
-    readonly quantity: number;
-    readonly price?: Money;
-  }>;
-  readonly total?: Money;
-  readonly note?: string;
-  /** The account whose record it responds to */
-  readonly respondingTo?: string;
-}
+export type Order = BodyOf<typeof order>;
 
 /** A step in an order's life, from either side: accepted, paid, shipped. */
-export const orderUpdate = typed<OrderUpdate>()({
+export const orderUpdate = define({
   name: 'std.order-update',
   title: 'Order update',
   description: 'A step in an order: accepted, paid, shipped, delivered, cancelled.',
@@ -237,9 +192,9 @@ export const orderUpdate = typed<OrderUpdate>()({
   rules: own,
   topics: ['respondingTo'],
 });
-export interface OrderUpdate {
-  readonly status: 'accepted' | 'paid' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
-  readonly note?: string;
-  /** The account whose record it responds to */
-  readonly respondingTo?: string;
-}
+export type OrderUpdate = BodyOf<typeof orderUpdate>;
+
+/** This file's part of `standardGroups` */
+export const moneyGroups = {
+  'Money and trade': [expense, settlement, moneyAccount, transaction, listing, order, orderUpdate],
+};

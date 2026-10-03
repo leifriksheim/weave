@@ -6,13 +6,13 @@
  * a CLI command against the same folder, by a browser pointed at it, or by
  * pairing. Given relays, it also meets the account's other devices through
  * them, over WebRTC, so a fresh account on a laptop finds its spaces with
- * nothing pointed at it. That is the whole job. It is a peer with uptime, not a server with
- * authority: everything that arrives passes the same gates it would anywhere.
+ * nothing pointed at it. That is the whole job. It is a peer with uptime, not a
+ * server with authority: everything that arrives passes the same gates.
  */
-import { createNode, type P2PNode } from '@weaveprotocol/core';
-import { enableWebRTC } from './agent.js';
-import type { Unlocked } from './home.js';
-import { errorCode } from './json.js';
+import type { P2PNode } from '@weaveprotocol/core';
+import { enableWebRTC, holdEverySpace } from './agent.js';
+import { nodeFor, type Unlocked } from './home.js';
+import { errorCode, messageOf } from './json.js';
 import { createInboundPeers, serve, type Served } from './serve.js';
 
 export interface DaemonOptions {
@@ -42,64 +42,28 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     ? await enableWebRTC().then(
         () => options.relays ?? [],
         (error: unknown) => {
-          log(
-            `no WebRTC here (${error instanceof Error ? error.message : String(error)}), so no relays: peers reach this node over sockets`,
-          );
+          log(`no WebRTC here (${messageOf(error)}), so no relays: peers reach this node over sockets`);
           return [];
         },
       )
     : [];
 
-  const node = await createNode({
-    signer: options.unlocked.signer,
-    stores: options.unlocked.stores,
-    // Following the account registry is what makes this *your* node: every
-    // space the account joins, on any device, is served here too.
-    accountKey: options.unlocked.accountKey,
-    contactKey: options.unlocked.contactKey,
+  // Following the account registry is what makes this *your* node: every
+  // space the account joins, on any device, is served here too.
+  const node = await nodeFor(options.unlocked, {
     network: {
       transports: inbound.transports,
       ...(relays.length ? { relays } : {}),
       ...(options.nodes?.length ? { nodes: options.nodes } : {}),
     },
   });
-
-  /** Spaces being served, and how to let go of each */
-  const open = new Map<string, () => Promise<void>>();
-  const rescan = async () => {
-    const held = new Set((await node.spaces.list()).map((space) => space.id));
-    for (const id of held) {
-      if (open.has(id)) continue;
-      open.set(id, await node.spaces.hold(id));
-      log(`serving space ${id}`);
-    }
-    for (const [id, release] of [...open]) {
-      if (held.has(id)) continue;
-      await release();
-      open.delete(id);
-      log(`stopped serving space ${id}`);
-    }
-  };
-  await rescan();
-
-  let scanning = false;
-  const timer = setInterval(() => rescanSoon(), options.rescanMs ?? 5000);
-
-  const rescanSoon = () => {
-    if (scanning) return;
-    scanning = true;
-    rescan()
-      .catch((error: unknown) =>
-        log(`rescan failed: ${error instanceof Error ? error.message : String(error)}`),
-      )
-      .finally(() => {
-        scanning = false;
-      });
-  };
-
+  const stopHolding = await holdEverySpace(node, {
+    everyMs: options.rescanMs ?? 5000,
+    onHold: (id) => log(`serving space ${id}`),
+    onRelease: (id) => log(`stopped serving space ${id}`),
+    log,
+  });
   node.subscribe((event) => {
-    // The registry just joined or left something: serve it now, not in five seconds.
-    if (event.type === 'spaces') rescanSoon();
     if (event.type === 'rejected')
       log(`rejected a record from ${event.peer} in ${event.space}: ${event.reason}`);
   });
@@ -113,7 +77,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       ...(options.host ? { host: options.host } : {}),
     });
   } catch (error) {
-    clearInterval(timer);
+    stopHolding();
     await node.close();
     if (errorCode(error) === 'EADDRINUSE') {
       throw new Error(
@@ -130,7 +94,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     node,
     port: served.port,
     async close() {
-      clearInterval(timer);
+      stopHolding();
       await served.close();
       await node.close();
     },

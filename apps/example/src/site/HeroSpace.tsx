@@ -313,23 +313,23 @@ export function HeroSpace() {
               </div>
             </div>
           ) : !inSpace ? (
-            <div className="demo-proposal">
-              <div className="demo-proposal-head">
+            <div className="proposal">
+              <div className="proposal-head">
                 <b>{scene.tool}</b>
-                <span className="demo-tag">{phase === 'added' ? 'Added' : 'Proposal'}</span>
+                <span className="tag">{phase === 'added' ? 'Added' : 'Proposal'}</span>
               </div>
-              <div className="demo-by">{scene.who} · via AI</div>
-              <div className="demo-allows">What it allows</div>
+              <div className="by">{scene.who} · via AI</div>
+              <div className="allows">What it allows</div>
               <ul>
                 {scene.allows.map((rule) => (
                   <li key={rule}>{rule}</li>
                 ))}
               </ul>
-              <div className="demo-actions">
-                <span className={phase === 'added' ? 'demo-btn primary pressed' : 'demo-btn primary'}>
+              <div className="proposal-actions">
+                <span className={phase === 'added' ? 'mini-btn primary pressed' : 'mini-btn primary'}>
                   {phase === 'added' ? `Added by ${scene.admin}` : 'Add to space'}
                 </span>
-                <span className="demo-btn">Read the code</span>
+                <span className="mini-btn">Read the code</span>
               </div>
             </div>
           ) : (

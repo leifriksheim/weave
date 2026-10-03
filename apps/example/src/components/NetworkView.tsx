@@ -15,6 +15,8 @@ import {
 } from '../derive/network';
 import { styles, palette, variants } from '../styles';
 import { Person } from './Person';
+import { DocsNote } from './DocsNote';
+import { useAction } from '@weave/app-shared/action';
 
 /** The time now, a second at a time, for countdowns and "for 4 min" */
 export function useNow(): number {
@@ -58,12 +60,7 @@ export function Dot({ color, size = 8 }: { color: string; size?: number }) {
   );
 }
 
-/**
- * Everything about how this space reaches other devices: whether it is, who
- * it is syncing with, the relays that introduce peers, and the connections
- * this device is holding or trying to make. Made to answer "why isn't my
- * other device here?" without opening the console.
- */
+/** How this space reaches other devices, made to answer "why isn't my other device here?" */
 export function NetworkView({ space, status }: { space: SpaceSummary; status: SpaceStatus | undefined }) {
   const node = useNode();
   const network = useNetwork();
@@ -93,7 +90,9 @@ export function NetworkView({ space, status }: { space: SpaceSummary; status: Sp
       )}
       <Connections network={network} status={status} now={now} />
       {status && <SyncFacts status={status} />}
-      <HowItWorks />
+      <DocsNote path="spec/04-network.md">
+        Devices meet through a relay, then connect directly and introduce each other.
+      </DocsNote>
     </div>
   );
 }
@@ -282,11 +281,7 @@ function Relays({ network, now, onRetry }: { network: MeshStatus; now: number; o
 
 // ─── Where the space meets ─────────────────────────────────────────
 
-/**
- * The relays the space names for its members, which every member joins on
- * top of their app's own. Someone who manages the space can add and remove
- * them; everyone else sees where they meet.
- */
+/** The relays the space names for its members; someone who manages it can change them */
 function SpaceRelays({
   space,
   named,
@@ -302,26 +297,13 @@ function SpaceRelays({
 }) {
   const node = useNode();
   const [draft, setDraft] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { run, busy, error } = useAction();
 
   const candidate = relayUrl(draft);
   const problem = candidate ? checkRelays([...named, candidate]) : null;
   const full = named.length >= MAX_RELAYS;
 
-  const save = async (relays: ReadonlyArray<string>) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await node.spaces.setRelays(space.id, relays);
-      return true;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  };
+  const save = (relays: ReadonlyArray<string>) => run(() => node.spaces.setRelays(space.id, relays));
 
   const add = async (event: FormEvent) => {
     event.preventDefault();
@@ -536,29 +518,6 @@ function SyncFacts({ status }: { status: SpaceStatus }) {
         ))}
       </dl>
     </Section>
-  );
-}
-
-function HowItWorks() {
-  return (
-    <details style={{ ...styles.panel, marginTop: 0 }}>
-      <summary style={{ ...styles.panelSummary, fontSize: 13 }}>How devices find each other</summary>
-      <div style={{ ...styles.panelBody, fontSize: 13, lineHeight: 1.6 }}>
-        <p>
-          Every device holding this space opens a socket to the relays, and joins the space's room there. The
-          relay tells the ones already in the room that a new one arrived, and they offer it a direct
-          connection.
-        </p>
-        <p>
-          Once connected, each side proves it belongs in the space before anything is shared, and the relay is
-          no longer needed: devices already connected introduce the rest.
-        </p>
-        <p>
-          If a relay drops — a laptop sleeps, Wi-Fi changes, the relay restarts — the socket comes back by
-          itself, sooner when the network does. A connection that never opens is given up and offered again.
-        </p>
-      </div>
-    </details>
   );
 }
 

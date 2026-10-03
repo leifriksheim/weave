@@ -43,13 +43,7 @@ export function useActivity(spaceId: string): ReadonlyMap<string, ReadonlyArray<
   return byRecord;
 }
 
-/**
- * Whether a space with rules that ask an agent or a bot keeps no
- * `std.activity`, where they say they are at work, and a way to turn it on
- * for someone who may add collections. A bot can't add it, and a space whose
- * rules came before it has none. Asked, never done on opening: opening a
- * space writes nothing.
- */
+/** Whether a space whose rules ask an agent or bot lacks `std.activity`, and a way to add it; never done on opening. */
 export function useActivityOff(
   spaceId: string,
   writable: boolean,

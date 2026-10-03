@@ -1,4 +1,4 @@
-import { hash } from './hash';
+import { avatarCells } from './avatar-cells';
 
 /**
  * A visual fingerprint for an account.
@@ -9,21 +9,9 @@ import { hash } from './hash';
  * read the name.
  */
 export function Avatar({ did, size = 32 }: { did: string; size?: number }) {
-  const seed = hash(did);
-  const hue = seed % 360;
+  const { hue, cells } = avatarCells(did);
   const ink = `hsl(${hue} 62% 48%)`;
   const paper = `hsl(${hue} 46% 92%)`;
-
-  // Mirrored down the middle, the way identicons have always been, so the
-  // shape reads as a face rather than as noise.
-  const cells: Array<{ x: number; y: number }> = [];
-  for (let x = 0; x < 3; x++) {
-    for (let y = 0; y < 5; y++) {
-      if (((seed >> (x * 5 + y)) & 1) === 0) continue;
-      cells.push({ x, y });
-      if (x < 2) cells.push({ x: 4 - x, y });
-    }
-  }
 
   return (
     <svg

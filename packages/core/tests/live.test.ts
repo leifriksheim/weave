@@ -3,44 +3,22 @@
  * nowhere, and say which account sent them — and spaces opened by two callers
  * stay open until both close them.
  */
-import { test, describe, afterEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createNode } from '../src/node/node.js';
 import type { LiveMessage, P2PNode } from '../src/node/types.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
-import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { generateSeed } from '../src/identity/recovery-code.js';
-import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { utf8Encode } from '../src/utils/encoding.js';
 import { joined } from './helpers/joined.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
-import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { until } from './helpers/until.js';
+import type { StoreFactory } from '../src/node/stores.js';
+import { person as somebody, settle } from './helpers/person.js';
 
-const open: P2PNode[] = [];
-afterEach(async () => {
-  await Promise.all(open.splice(0).map((node) => node.close()));
-});
-
-async function person(hub: FakeHub, stores = memoryStores()) {
-  const seed = generateSeed();
-  const manager = createIdentityManager();
-  const me = await manager.fromSeed(seed);
-  const node = await createNode({
-    signer: createLocalRootSigner(me, manager.getProvider()),
-    stores,
-    accountKey: await deriveVaultKeyBytes(seed),
-    watchIntervalMs: 0,
-    network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
-  });
-  open.push(node);
-  return { node, stores };
-}
-
-const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const person = (hub: FakeHub, stores?: StoreFactory) => somebody(hub, { stores, accountKey: true });
 
 /** Every live message a node hears, in order */
 function inbox(node: P2PNode): Array<LiveMessage & { space: string }> {

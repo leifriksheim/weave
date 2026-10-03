@@ -13,19 +13,18 @@ import {
   placeRef,
   position,
   text,
-  typed,
+  define,
   url,
   when,
   words,
-  type BlobRef,
-  type Place,
 } from '../fragments.js';
+import type { BodyOf } from '../../query/types.js';
 
 /**
  * A list of anything: shopping, packing, reading, people, a playlist. `kind`
  * is a hint for how to show it, not a constraint.
  */
-export const list = typed<List>()({
+export const list = define({
   name: 'std.list',
   title: 'List',
   description: 'A list of things; its items are std.list-item records linked in it.',
@@ -40,15 +39,10 @@ export const list = typed<List>()({
     required: ['title'],
   },
 });
-export interface List {
-  readonly title: string;
-  readonly description?: string;
-  readonly icon?: string;
-  readonly kind?: string;
-}
+export type List = BodyOf<typeof list>;
 
 /** One thing on a list: some text, a web page, a person, or a record it is `about`. */
-export const listItem = typed<ListItem>()({
+export const listItem = define({
   name: 'std.list-item',
   title: 'List item',
   description: 'One thing on a list: text, a link, a person or a record.',
@@ -66,29 +60,20 @@ export const listItem = typed<ListItem>()({
   links: { in: one(['std.list'], 'The list it is on'), about: about('A record it stands for') },
   topics: ['did'],
 });
-export interface ListItem {
-  readonly text?: string;
-  readonly url?: string;
-  readonly did?: string;
-  readonly checked?: boolean;
-  readonly quantity?: number;
-  readonly position?: string;
-}
+export type ListItem = BodyOf<typeof listItem>;
 
 /** A folder of files, inside another or at the top. */
-export const folder = typed<Folder>()({
+export const folder = define({
   name: 'std.folder',
   title: 'Folder',
   description: 'A folder of files.',
   schema: { type: 'object', properties: { name: words(255) }, required: ['name'] },
   links: { parent: one(['std.folder'], 'The folder it is in') },
 });
-export interface Folder {
-  readonly name: string;
-}
+export type Folder = BodyOf<typeof folder>;
 
 /** A file, in a folder or at the top. */
-export const file = typed<FileEntry>()({
+export const file = define({
   name: 'std.file',
   title: 'File',
   description: 'A file, in a folder.',
@@ -99,13 +84,10 @@ export const file = typed<FileEntry>()({
   },
   links: { parent: one(['std.folder'], 'The folder it is in') },
 });
-export interface FileEntry {
-  readonly name: string;
-  readonly blob: BlobRef;
-}
+export type FileEntry = BodyOf<typeof file>;
 
 /** A photo, in any number of albums. */
-export const photo = typed<Photo>()({
+export const photo = define({
   name: 'std.photo',
   title: 'Photo',
   description: 'A photo, with where and when it was taken.',
@@ -123,17 +105,10 @@ export const photo = typed<Photo>()({
   },
   links: { in: many(['std.album'], 'The albums it is in') },
 });
-export interface Photo {
-  readonly blob: BlobRef;
-  readonly alt?: string;
-  readonly width?: number;
-  readonly height?: number;
-  readonly takenAt?: string;
-  readonly place?: Place;
-}
+export type Photo = BodyOf<typeof photo>;
 
 /** An album of photos and videos. */
-export const album = typed<Album>()({
+export const album = define({
   name: 'std.album',
   title: 'Album',
   description: 'An album of photos and videos.',
@@ -144,13 +119,10 @@ export const album = typed<Album>()({
   },
   links: { cover: one(['std.photo'], 'The photo on its cover') },
 });
-export interface Album {
-  readonly title: string;
-  readonly description?: string;
-}
+export type Album = BodyOf<typeof album>;
 
 /** A video, with a still to show before it plays and captions. */
-export const video = typed<Video>()({
+export const video = define({
   name: 'std.video',
   title: 'Video',
   description: 'A video, with a thumbnail and captions.',
@@ -168,14 +140,7 @@ export const video = typed<Video>()({
   },
   links: { in: many('*', 'Albums, lists or channels it is in') },
 });
-export interface Video {
-  readonly blob: BlobRef;
-  readonly thumbnail?: BlobRef;
-  readonly duration?: number;
-  readonly captions?: BlobRef;
-  readonly alt?: string;
-  readonly title?: string;
-}
+export type Video = BodyOf<typeof video>;
 
 const trackFields = {
   title: words(300),
@@ -187,25 +152,17 @@ const trackFields = {
 } as const;
 
 /** A piece of music, known by its ids; `blob` when the space holds the audio. */
-export const track = typed<Track>()({
+export const track = define({
   name: 'std.track',
   title: 'Track',
   description: 'A piece of music, by title, artists and ids.',
   schema: { type: 'object', properties: { ...trackFields, blob: blob() }, required: ['title'] },
   links: { in: many(['std.list'], 'Playlists it is on') },
 });
-export interface Track {
-  readonly title: string;
-  readonly artists?: ReadonlyArray<string>;
-  readonly album?: string;
-  readonly duration?: number;
-  readonly isrc?: string;
-  readonly mbid?: string;
-  readonly blob?: BlobRef;
-}
+export type Track = BodyOf<typeof track>;
 
 /** A track someone listened to, and when: a listening history. */
-export const play = typed<Play>()({
+export const play = define({
   name: 'std.play',
   title: 'Play',
   description: 'A track someone listened to, and when.',
@@ -216,6 +173,10 @@ export const play = typed<Play>()({
   },
   rules: own,
 });
-export interface Play extends Omit<Track, 'blob'> {
-  readonly playedAt: string;
-}
+export type Play = BodyOf<typeof play>;
+
+/** This file's part of `standardGroups` */
+export const mediaGroups = {
+  Lists: [list, listItem],
+  'Files and media': [folder, file, photo, album, video, track, play],
+};

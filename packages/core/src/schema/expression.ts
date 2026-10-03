@@ -4,9 +4,7 @@ import { cidFromBytes } from '../utils/hash.js';
 import { isRecord } from '../utils/guards.js';
 import { newRecordKey } from '../records/version.js';
 
-/**
- * Parameters for creating a new expression.
- */
+/** Parameters for creating a new expression. */
 export interface CreateExpressionParams<T> {
   readonly author: string;
   readonly collection: string;
@@ -36,9 +34,6 @@ export interface CreateExpressionParams<T> {
 /**
  * Deterministically serializes an object into a JSON string with sorted keys.
  * Recursively processes nested objects.
- *
- * @param obj The object to canonicalize
- * @returns Deterministic JSON string representation
  */
 export function canonicalize(obj: unknown): string {
   if (Array.isArray(obj)) {
@@ -62,11 +57,7 @@ export function canonicalize(obj: unknown): string {
   return `{${pairs.join(',')}}`;
 }
 
-/**
- * Creates an unsigned expression with a generated timestamp (if not provided).
- * @param params Parameters to create the expression
- * @returns Unsigned expression object
- */
+/** Creates an unsigned expression with a generated timestamp (if not provided). */
 export function createExpression<T>(params: CreateExpressionParams<T>): UnsignedExpression<T> {
   return Object.freeze({
     author: params.author,
@@ -108,8 +99,6 @@ export async function envelopeOf(expression: UnsignedExpression): Promise<Envelo
  * What the author signed and the id hashes: everything but the id, the
  * signature and the body. Both checks — id and signature — must drop exactly
  * these, or a field added later is hashed on one side and not the other.
- * @param expression A signed expression, whole or a stub
- * @returns Its envelope
  */
 export function signedPart(expression: Expression): Envelope {
   const { id: _id, signature: _signature, body: _body, ...envelope } = expression;
@@ -140,11 +129,7 @@ export async function bodyProblem(expression: Expression): Promise<string | null
     : 'Its body is not the one it signed';
 }
 
-/**
- * Computes the id of an envelope by hashing its canonical serialization.
- * @param envelope What is signed: a version without its id, signature and body
- * @returns Promise resolving to the CID string
- */
+/** Computes the id of an envelope by hashing its canonical serialization. */
 export async function getExpressionId(envelope: Envelope): Promise<string> {
   return cidFromBytes(utf8Encode(canonicalize(envelope)));
 }

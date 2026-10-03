@@ -16,11 +16,7 @@ export interface CryptoGate {
   ): Promise<GateResult>;
 }
 
-/**
- * Creates a gate that performs cryptographic validation of expressions.
- * @param provider The cryptographic provider to use.
- * @returns A CryptoGate instance.
- */
+/** Creates a gate that performs cryptographic validation of expressions. */
 export function createCryptoGate(provider: CryptoProvider): CryptoGate {
   return {
     async validate(

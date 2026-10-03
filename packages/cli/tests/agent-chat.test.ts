@@ -2,10 +2,8 @@
  * `weave agent`'s loop, against a real node and a scripted model: the tools it
  * is offered, what it asks before running, and the daily cap.
  */
-import { test, describe, after } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import type { MessageCreateParamsBase } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 
@@ -18,33 +16,10 @@ import {
   type Reply,
   type Spend,
 } from '../src/agent-chat.js';
-import { PEER_CONTENT_NOTE, PERSON_ONLY } from '../src/mcp.js';
-import { createNode } from '../../core/src/node/node.js';
-import type { P2PNode } from '../../core/src/node/types.js';
-import { createIdentityManager } from '../../core/src/identity/identity-manager.js';
-import { createLocalRootSigner } from '../../core/src/identity/root-signer.js';
-import { memoryStores } from '../../core/tests/helpers/memory-stores.js';
+import { PEER_CONTENT_NOTE, PERSON_ONLY } from '../../core/src/node/actions.js';
+import { aNode, tempDir } from './helpers/nodes.js';
 
 const MODEL = 'claude-opus-5-5';
-
-const temporary: string[] = [];
-const nodes: P2PNode[] = [];
-after(async () => {
-  await Promise.all(nodes.map((node) => node.close()));
-  await Promise.all(temporary.map((dir) => rm(dir, { recursive: true, force: true })));
-});
-
-async function aNode(fill: number): Promise<P2PNode> {
-  const manager = createIdentityManager();
-  const me = await manager.fromSeed(new Uint8Array(16).fill(fill));
-  const node = await createNode({
-    signer: createLocalRootSigner(me, manager.getProvider()),
-    stores: memoryStores(),
-    watchIntervalMs: 0,
-  });
-  nodes.push(node);
-  return node;
-}
 
 const usage = {
   input_tokens: 1000,
@@ -270,7 +245,7 @@ describe('weave agent', () => {
     assert.equal(history.at(-1)?.content, 'Hi');
   });
 
-  test('prices a reply from its usage', () => {
+  test('prices a reply from its usage', async () => {
     const reply: Reply = {
       ...say('x'),
       usage: {
@@ -282,10 +257,11 @@ describe('weave agent', () => {
     };
     assert.equal(replyCost(reply, MODEL), 4 + 20 + 5 + 0.2);
     assert.equal(replyCost({ ...reply, model: 'claude-haiku-4-5' }, MODEL), 1 + 5 + 1.25 + 0.1);
+    const node = await aNode(16);
     assert.throws(
       () =>
         createAgentChat({
-          node: nodes[0]!,
+          node,
           think: async () => reply,
           model: 'gpt-x',
           spend: memorySpend(),
@@ -297,8 +273,7 @@ describe('weave agent', () => {
   });
 
   test("keeps today's spend on disk, and starts again the next day", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'weave-agent-'));
-    temporary.push(dir);
+    const dir = await tempDir('weave-agent-');
     let now = new Date(2026, 8, 29, 23, 0);
     const spend = fileSpend(dir, () => now);
     await spend.add(0.25);
@@ -309,8 +284,7 @@ describe('weave agent', () => {
   });
 
   test('makes its folder on the first spend, as a bot a host runs has none yet', async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'weave-agent-'));
-    temporary.push(dir);
+    const dir = await tempDir('weave-agent-');
     const spend = fileSpend(path.join(dir, 'agent'));
     assert.equal(await spend.today(), 0);
     await spend.add(0.1, 'did:key:zSomeone');

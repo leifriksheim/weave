@@ -11,14 +11,6 @@ import { nameOf, type People } from '../../derive/people';
 import { styles, palette } from '../../styles';
 import { Icon } from '../Icon';
 
-/**
- * The pieces the notification and rule builders share: a sentence made of
- * choices ("someone else adds a [task] in [this space]"), and the list of
- * "only when…" conditions under it, each picked from what the collection's
- * fields can hold. Native selects under the look, so they work with a
- * keyboard, a screen reader and a phone's own picker.
- */
-
 /** One choice inside a sentence, drawn as a word you can change */
 export function Pill<T extends string>({
   value,
@@ -151,10 +143,7 @@ export function ValueInput({
   }
 }
 
-/**
- * "Only when…": a condition per row, and a way to add one on any field. With
- * none yet, `suggest` offers a few the fields make likely — "assigned to me".
- */
+/** A condition per row and a way to add one on any field; with none yet, `suggest` offers likely ones */
 export function ClauseList({
   fields,
   clauses,
@@ -163,6 +152,7 @@ export function ClauseList({
   me,
   suggest = true,
   empty,
+  add = '+ Only when…',
 }: {
   fields: ReadonlyArray<ClauseField>;
   clauses: ReadonlyArray<Clause>;
@@ -172,9 +162,9 @@ export function ClauseList({
   suggest?: boolean;
   /** Said when there are no conditions: what that means */
   empty?: string;
+  add?: string;
 }) {
   const set = (i: number, next: Clause) => onChange(clauses.map((c, j) => (j === i ? next : c)));
-  const unused = fields.filter((f) => !clauses.some((c) => c.field === f.name));
   const suggestions = suggest && clauses.length === 0 ? suggestionsFor(fields) : [];
 
   return (
@@ -235,9 +225,9 @@ export function ClauseList({
       })}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        {unused.length > 0 && (
+        {fields.length > 0 && (
           <label style={{ position: 'relative', display: 'inline-flex' }}>
-            <span style={addButton}>+ Only when…</span>
+            <span style={addButton}>{add}</span>
             <select
               aria-label="Add a condition on"
               value=""
@@ -248,7 +238,7 @@ export function ClauseList({
               style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
             >
               <option value="">Add a condition on…</option>
-              {unused.map((f) => (
+              {fields.map((f) => (
                 <option key={f.name} value={f.name}>
                   {f.label}
                 </option>
@@ -262,7 +252,7 @@ export function ClauseList({
             type="button"
             onClick={() => onChange([clause])}
             data-variant="quiet"
-            style={suggestion}
+            style={chip}
           >
             {clauseWords(clause, fields)}
           </button>
@@ -389,7 +379,8 @@ const addButton: CSSProperties = {
   fontWeight: 500,
 };
 
-const suggestion: CSSProperties = {
+/** A small rounded button, for a suggestion or an option */
+export const chip: CSSProperties = {
   ...styles.smallButton,
   height: 30,
   borderRadius: 999,

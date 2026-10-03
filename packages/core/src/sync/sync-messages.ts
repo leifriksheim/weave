@@ -1,5 +1,4 @@
 /**
- * @module sync-messages
  * What peers say to each other to reconcile a space.
  *
  * Messages are plain objects: they travel inside the network's own envelope,
@@ -63,10 +62,7 @@ export type SyncMessage = V &
 /** A message before the version is stamped on — what callers construct. */
 export type SyncMessageBody = SyncMessage extends infer M ? (M extends V ? Omit<M, 'v'> : never) : never;
 
-/**
- * Checks that something a peer sent is a sync message this peer speaks.
- * @returns The message, or null when it is malformed or from another protocol version.
- */
+/** Checks that something a peer sent is a sync message this peer speaks. */
 export function parseSyncMessage(value: unknown): SyncMessage | null {
   return isSyncMessage(value) ? value : null;
 }

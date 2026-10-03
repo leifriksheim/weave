@@ -1,13 +1,4 @@
-/**
- * Rules, as this app builds them: "when a poll has more than 10 votes, close
- * it", picked from what the space's collections say their records hold. What
- * runs is the library's (`std.rule`, `startRules` in `@weaveprotocol/core/schemas`):
- * a query and a condition. What was picked is kept beside it (`picked`), so
- * the rule can be shown in words and changed again.
- *
- * This app runs its maker's rules while it is open, except those that ask an
- * agent or run at set times: `weave agent`, or a bot, runs those.
- */
+/** Rules picked from the space's collections, kept with what was picked so they can be shown in words; run by `startRules` while this app is open. */
 import { useEffect } from 'react';
 import { useAccount, useNode } from '@weaveprotocol/core/react';
 import type { Condition, NodeCollection, QueryRecord } from '@weaveprotocol/core';
@@ -93,11 +84,7 @@ const COUNT_OPERATOR: Readonly<Record<CountClause['op'], string>> = {
   is: '==',
 };
 
-/**
- * What was picked, as the rule runs it: the collection as a query, counting
- * what links to it as an include, and every condition as one. "Me" is
- * `$me`: whoever runs it, the maker or the bot they name.
- */
+/** What was picked, as the rule runs it: a query, counts as includes, and the conditions; "me" is `$me`, whoever runs it */
 export function compile(picked: Picked): RuleWhen {
   const parts: Condition[] = [];
   const own = whereOf(picked.clauses, ME);
@@ -138,12 +125,7 @@ export interface AddTarget {
   readonly links: ReadonlyArray<string>;
 }
 
-/**
- * The collections a rule can add to, for a record of `about`: those one line
- * of text can make a record of (`quickAddBody`), with the links a new one
- * could point at it by, those naming it before those to anything. Those that
- * can point at it come first.
- */
+/** The collections a rule can add to for a record of `about`, by one line of text, those that can link to it first */
 export function addable(collections: ReadonlyArray<NodeCollection>, about: string): ReadonlyArray<AddTarget> {
   const pointing = attachable(collections, about);
   const found = collections
@@ -310,10 +292,7 @@ function notify(title: string, text: string, record?: QueryRecord): boolean {
   return true;
 }
 
-/**
- * Runs the rules this account made, in every space, while the app is open.
- * Rules that ask an agent, or run at set times, are left to `weave agent`.
- */
+/** Runs this account's rules in every space while the app is open; those that ask an agent or run on a timer are `weave agent`'s */
 export function useRunRules(): void {
   const node = useNode();
   const { did } = useAccount();
@@ -321,11 +300,7 @@ export function useRunRules(): void {
   useEffect(() => startRules(node, { account: did, notify, timed: false, claimMs: 1500 }), [node, did]);
 }
 
-/**
- * Starting points for a space, from what its collections say about themselves:
- * what a rule is for, before anyone has made one. Nothing here knows about
- * polls or channels; a collection someone made yesterday gets ideas too.
- */
+/** Starting points for a space, from what its collections say about themselves */
 export function ideas(
   collections: ReadonlyArray<NodeCollection>,
 ): ReadonlyArray<{ title: string; rule: PickedRule }> {

@@ -5,29 +5,29 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createP256Provider } from '../src/identity/crypto-p256.js';
-import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
 import {
   issueUCAN,
   parseUCAN,
   verifyUCAN,
   isCapabilitySubset,
-  validateDelegationChain,
   delegateCapabilities,
+  resolveDelegationRoot,
   type Capability,
+  type UCANToken,
 } from '../src/identity/ucan.js';
+import { makeKey } from './helpers/person.js';
 
 const provider = createP256Provider();
-
-/** A fresh keypair plus its did:key identifier. */
-async function makeKey() {
-  const pair = await provider.generateKeyPair();
-  const did = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
-  return { did, privateKey: pair.privateKey, publicKey: pair.publicKey };
-}
 
 const ALL: Capability = { with: 'space:todos', can: 'expression/*' };
 const WRITE: Capability = { with: 'space:todos', can: 'expression/write' };
 const READ: Capability = { with: 'space:todos', can: 'expression/read' };
+
+/** A proof resolver that knows only these tokens */
+const proofs =
+  (...tokens: UCANToken[]) =>
+  (cid: string): string | null =>
+    tokens.find((token) => token.cid === cid)?.encoded ?? null;
 
 describe('issueUCAN / verifyUCAN', () => {
   test('round-trips a signed token', async () => {
@@ -137,7 +137,7 @@ describe('delegateCapabilities', () => {
     assert.equal(child.payload.iss, session.did);
     assert.equal(child.payload.exp <= parent.payload.exp, true);
 
-    const chain = await validateDelegationChain(child.encoded, [parent.encoded], provider);
+    const chain = await resolveDelegationRoot(child.encoded, proofs(parent), provider);
     assert.equal(chain.valid, true, chain.reason ?? 'no reason given');
   });
 
@@ -193,11 +193,11 @@ describe('delegateCapabilities', () => {
   });
 });
 
-describe('validateDelegationChain', () => {
+describe('a delegation chain', () => {
   test('accepts a root token with no proofs', async () => {
     const root = await makeKey();
     const token = await issueUCAN({ issuer: root, audience: root.did, capabilities: [ALL] }, provider);
-    const chain = await validateDelegationChain(token.encoded, [], provider);
+    const chain = await resolveDelegationRoot(token.encoded, proofs(), provider);
     assert.equal(chain.valid, true, chain.reason ?? 'no reason given');
   });
 
@@ -212,7 +212,7 @@ describe('validateDelegationChain', () => {
       provider,
     );
 
-    const chain = await validateDelegationChain(child.encoded, [], provider);
+    const chain = await resolveDelegationRoot(child.encoded, proofs(), provider);
     assert.equal(chain.valid, false);
     assert.match(chain.reason ?? '', /missing proof/i);
   });
@@ -237,7 +237,7 @@ describe('validateDelegationChain', () => {
       provider,
     );
 
-    const chain = await validateDelegationChain(forged.encoded, [parent.encoded], provider);
+    const chain = await resolveDelegationRoot(forged.encoded, proofs(parent), provider);
     assert.equal(chain.valid, false);
     assert.match(chain.reason ?? '', /chain broken/i);
   });

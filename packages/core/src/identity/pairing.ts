@@ -1,36 +1,19 @@
 /**
  * @module pairing
- * Handing an account to a phone.
- *
- * A phone cannot open a folder — no mobile browser has the File System Access
- * API — so it keeps its own copy of the data, like any other peer. What it needs
- * from the desktop is two things: who you are, and which lists exist.
- *
- * The first fits in a QR code. The second does not, and does not need to: once
- * both sides know the seed they can each work out the same private meeting room
- * and the same key, meet there over the ordinary peer connection, and hand the
- * list of lists across encrypted. So the code stays small enough for a phone
- * camera to read from across a desk.
- *
- * Deriving the room from the *seed* rather than from the DID matters. A DID
- * appears in every expression the account has ever signed, so a room named after
- * one would be a room anyone could find. A room named after the seed can only be
- * found by someone who already has it.
- *
- * What this is not: the phone does not become a satellite of the desktop. It
- * derives the same identity and becomes a full peer, syncing with anyone in the
- * space. The desktop was a bootstrap, and can go offline immediately afterwards.
+ * Handing an account to a phone. The QR code carries the seed; both devices
+ * derive the same room and key from it, so the room can only be found by
+ * someone who already has the seed (a DID is public, a seed is not).
  */
 
 import { base64UrlEncode, base64UrlDecode, utf8Encode, utf8Decode, concatBytes } from '../utils/encoding.js';
 import { cidFromBytes } from '../utils/hash.js';
 import { protocolError } from '../utils/errors.js';
-import { bufferSource, isRecord } from '../utils/guards.js';
+import { isRecord } from '../utils/guards.js';
 import { hkdfAesKey } from './hkdf.js';
+import { aesOpen, aesSeal, NONCE_BYTES } from './aes.js';
 
-const ROOM_PREFIX = utf8Encode('weave-pairing-room-v1');
-const PAIRING_KEY_INFO = utf8Encode('weave-pairing-key-v1');
-const IV_BYTES = 12;
+export const ROOM_PREFIX = utf8Encode('weave-pairing-room-v1');
+export const PAIRING_KEY_INFO = utf8Encode('weave-pairing-key-v1');
 
 /** What the QR code carries */
 export interface PairingTicket {
@@ -46,9 +29,6 @@ export interface PairingTicket {
  *
  * Derived from the seed, so finding it already requires the secret. Both sides
  * compute it independently and neither has to send it.
- *
- * @param seed The account seed
- * @returns An opaque room id for the signaling relay
  */
 export async function pairingRoomId(seed: Uint8Array): Promise<string> {
   return cidFromBytes(concatBytes(ROOM_PREFIX, seed));
@@ -59,9 +39,6 @@ export async function pairingRoomId(seed: Uint8Array): Promise<string> {
  *
  * Separate from the vault key and from the signing key, so that a relay
  * operator watching the room learns nothing but the size of the payload.
- *
- * @param seed The account seed
- * @returns An AES-GCM key
  */
 export async function derivePairingKey(seed: Uint8Array): Promise<CryptoKey> {
   return hkdfAesKey(seed, PAIRING_KEY_INFO);
@@ -73,9 +50,6 @@ export async function derivePairingKey(seed: Uint8Array): Promise<CryptoKey> {
  * A fragment, because browsers never put one in a request — so the seed reaches
  * the phone without passing through the server hosting the page, the same way a
  * space invite carries its key.
- *
- * @param ticket What the phone needs to know
- * @returns A compact string for after the `#`
  */
 export function encodePairingTicket(ticket: PairingTicket): string {
   return base64UrlEncode(utf8Encode(JSON.stringify(ticket)));
@@ -87,11 +61,7 @@ function isPairingTicket(value: unknown): value is PairingTicket {
   );
 }
 
-/**
- * Unpacks a ticket from a URL fragment.
- * @param encoded The string after `#pair=`
- * @returns The ticket it stands for
- */
+/** Unpacks a ticket from a URL fragment. */
 export function decodePairingTicket(encoded: string): PairingTicket {
   try {
     const ticket: unknown = JSON.parse(utf8Decode(base64UrlDecode(encoded.trim())));
@@ -106,40 +76,18 @@ export function decodePairingTicket(encoded: string): PairingTicket {
   }
 }
 
-/**
- * Encrypts the handover payload.
- * @param plaintext What to send
- * @param key From {@link derivePairingKey}
- * @returns Nonce followed by ciphertext
- */
+/** Encrypts the handover payload: nonce, then ciphertext */
 export async function sealPairingPayload(plaintext: Uint8Array, key: CryptoKey): Promise<Uint8Array> {
-  const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES));
-  const ciphertext = await globalThis.crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    bufferSource(plaintext),
-  );
-  return concatBytes(iv, new Uint8Array(ciphertext));
+  return aesSeal(key, plaintext);
 }
 
-/**
- * Decrypts the handover payload.
- * @param sealed What arrived
- * @param key From {@link derivePairingKey}
- * @returns The plaintext
- */
+/** Decrypts the handover payload */
 export async function openPairingPayload(sealed: Uint8Array, key: CryptoKey): Promise<Uint8Array> {
-  if (sealed.length <= IV_BYTES) {
+  if (sealed.length <= NONCE_BYTES) {
     throw protocolError('PAIRING_TICKET_UNREADABLE', 'That handover was too short to be real.');
   }
-
   try {
-    const plain = await globalThis.crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: sealed.slice(0, IV_BYTES) },
-      key,
-      sealed.slice(IV_BYTES),
-    );
-    return new Uint8Array(plain);
+    return await aesOpen(key, sealed);
   } catch {
     // Someone else in the room, or a ticket for a different account.
     throw protocolError('PAIRING_TICKET_UNREADABLE', 'That handover was not meant for this account.');

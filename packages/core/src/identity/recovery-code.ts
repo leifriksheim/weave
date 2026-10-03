@@ -18,10 +18,7 @@ const SEED_BYTES = 16;
 /** How many bytes a seed is. Anything else cannot be written as a code. */
 export const RECOVERY_SEED_BYTES = SEED_BYTES;
 
-/**
- * Generates a fresh seed.
- * @returns 128 bits of entropy, ready to derive an identity from
- */
+/** Generates a fresh seed. */
 export function generateSeed(): Uint8Array {
   return globalThis.crypto.getRandomValues(new Uint8Array(SEED_BYTES));
 }
@@ -32,9 +29,6 @@ export function generateSeed(): Uint8Array {
  * The inverse of {@link recoveryCodeToSeed} — which matters once the seed is
  * kept wrapped rather than written down, because showing the user their code
  * then means encoding a seed that already exists rather than minting one.
- *
- * @param seed The seed bytes
- * @returns A grouped code such as `K7M2-9QPX-...`
  */
 export function seedToRecoveryCode(seed: Uint8Array): string {
   if (seed.length !== SEED_BYTES) {
@@ -43,19 +37,12 @@ export function seedToRecoveryCode(seed: Uint8Array): string {
   return formatRecoveryCode(encodeBase32(seed));
 }
 
-/**
- * Generates a fresh recovery code.
- * @returns A grouped code such as `K7M2-9QPX-...`
- */
+/** Generates a fresh recovery code. */
 export function generateRecoveryCode(): string {
   return seedToRecoveryCode(generateSeed());
 }
 
-/**
- * Strips formatting and resolves look-alike characters.
- * @param code A code as typed by a user
- * @returns The canonical, ungrouped form
- */
+/** Strips formatting and resolves look-alike characters. */
 export function normalizeRecoveryCode(code: string): string {
   return code
     .toUpperCase()
@@ -65,22 +52,14 @@ export function normalizeRecoveryCode(code: string): string {
     .join('');
 }
 
-/**
- * Checks whether a code could decode to a seed.
- * @param code A code as typed by a user
- * @returns Whether it is well formed
- */
+/** Checks whether a code could decode to a seed. */
 export function isValidRecoveryCode(code: string): boolean {
   const normalized = normalizeRecoveryCode(code);
   if (normalized.length !== Math.ceil((SEED_BYTES * 8) / 5)) return false;
   return normalized.split('').every((char) => ALPHABET.includes(char));
 }
 
-/**
- * Decodes a recovery code into the seed bytes it stands for.
- * @param code A code as typed by a user
- * @returns The seed, ready for key derivation
- */
+/** Decodes a recovery code into the seed bytes it stands for. */
 export function recoveryCodeToSeed(code: string): Uint8Array {
   const normalized = normalizeRecoveryCode(code);
   if (!isValidRecoveryCode(code)) {

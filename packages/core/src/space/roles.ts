@@ -1,5 +1,4 @@
 /**
- * @module space/roles
  * Who may do what in a space: its roles, its members, its invites, and the
  * history of changes to them — replayed the same way on every peer.
  *
@@ -590,11 +589,7 @@ function change(event: AccessEvent, state: MutableState): void {
   }
 }
 
-/**
- * Replays a space's access history.
- * @param genesis What the space started with
- * @param events Every change held, in any order; duplicates are ignored
- */
+/** Replays a space's access history. */
 export function replayAccess(genesis: AccessGenesis, events: ReadonlyArray<AccessEvent>): AccessHistory {
   const byId = new Map<string, AccessEvent>();
   for (const event of events) if (!byId.has(event.id)) byId.set(event.id, event);

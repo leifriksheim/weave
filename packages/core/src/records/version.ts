@@ -1,5 +1,4 @@
 /**
- * @module records/version
  * What makes one version of a record newer than another — without a clock.
  *
  * A record keeps one `key` for life. Every change is a new signed version

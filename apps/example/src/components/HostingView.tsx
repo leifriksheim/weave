@@ -3,10 +3,7 @@ import { SpaceHosting } from '@weave/app-shared/SpaceHosting';
 import { SpaceBots } from '@weave/app-shared/CommunitySetup';
 import { styles, palette } from '../styles';
 
-/**
- * Keeping a space online, in a tab of its own: the host that keeps it, its
- * fund and Chip in, and the AI helpers that host runs from the same fund.
- */
+/** Keeping a space online: its host, its fund, and the AI helpers that host runs */
 export function HostingView({ space, onAutomations }: { space: SpaceSummary; onAutomations: () => void }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28, maxWidth: 760 }}>

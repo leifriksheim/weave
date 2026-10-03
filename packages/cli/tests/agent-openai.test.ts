@@ -10,19 +10,11 @@ import type { AddressInfo } from 'node:net';
 
 import { fromChatResponse, openAIThink, toChatRequest } from '../src/agent-openai.js';
 import { createAgentChat, parsePrice, replyCost, type Spend } from '../src/agent-chat.js';
-import { createNode } from '../../core/src/node/node.js';
-import type { P2PNode } from '../../core/src/node/types.js';
-import { createIdentityManager } from '../../core/src/identity/identity-manager.js';
-import { createLocalRootSigner } from '../../core/src/identity/root-signer.js';
-import { memoryStores } from '../../core/tests/helpers/memory-stores.js';
+import { aNode } from './helpers/nodes.js';
 import { isRecord } from '../src/json.js';
 
-const nodes: P2PNode[] = [];
 const closers: Array<() => void> = [];
-after(async () => {
-  for (const close of closers) close();
-  await Promise.all(nodes.map((node) => node.close()));
-});
+after(() => closers.forEach((close) => close()));
 
 describe('Chat Completions', () => {
   test('a request becomes a chat: system first, tools as functions, each tool answer straight after its call', () => {
@@ -144,14 +136,7 @@ describe('Chat Completions', () => {
   });
 
   test('the loop runs against a Chat Completions server: it calls a tool, reads the answer, and pays by --price', async () => {
-    const manager = createIdentityManager();
-    const me = await manager.fromSeed(new Uint8Array(16).fill(71));
-    const node = await createNode({
-      signer: createLocalRootSigner(me, manager.getProvider()),
-      stores: memoryStores(),
-      watchIntervalMs: 0,
-    });
-    nodes.push(node);
+    const node = await aNode(71);
     const space = await node.spaces.create({ name: 'Club', visibility: 'public' });
 
     const seen: Array<{ auth: string | undefined; body: unknown }> = [];

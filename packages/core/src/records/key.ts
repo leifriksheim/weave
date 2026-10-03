@@ -1,5 +1,4 @@
 /**
- * @module records/key
  * The shape of a record key, on its own so that `version` and `links` can both
  * check it without importing each other.
  */

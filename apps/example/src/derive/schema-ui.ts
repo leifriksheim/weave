@@ -1,11 +1,4 @@
-/**
- * What a screen can work out from a space's own description of its data.
- *
- * Nothing here knows about todos, polls or anything else. A collection's
- * definition — its JSON Schema and its declared links — is enough to draw a
- * form, a table, a record page and the "add a vote to this poll" buttons.
- * Pure functions, so any renderer (DOM, native, a voice agent) could use them.
- */
+// What a screen can work out from a collection's own definition, knowing nothing about what it holds.
 import {
   quickAddBody,
   recordTitle,
@@ -128,14 +121,7 @@ export function collectionLabel(collection: Pick<NodeCollection, 'name' | 'title
   return collection.title ?? humanize(collection.name.split('.').pop() ?? collection.name);
 }
 
-/**
- * The records that could be added pointing at a record of this collection:
- * every collection declaring a link whose target includes it. A poll's page
- * offers "Add vote" because `app.poll.vote` declares `about → app.poll`.
- *
- * Collections the app already gives a place of their own (its reactions and
- * comments) are left out via `except`.
- */
+/** Collections declaring a link that may point at this one, less `except` (a poll offers "Add vote") */
 export function attachable(
   collections: ReadonlyArray<NodeCollection>,
   target: string,
@@ -151,12 +137,7 @@ export function attachable(
   return found;
 }
 
-/**
- * What belongs under a record of this collection: links that name it, like a
- * message's `channel` or a vote's `about`, not links to anything at all, like
- * a message that shares a record, which point at it only in passing. `about`
- * to anything still counts: it is what an annotation is for.
- */
+/** Links that name this collection (or `about` anything), not ones that point at anything in passing */
 export function belonging(
   collections: ReadonlyArray<NodeCollection>,
   target: string,
@@ -184,11 +165,7 @@ export function choicesFrom(schema: JsonSchema): { rel: string; field: string } 
     : null;
 }
 
-/**
- * A field's choices: fixed ones from `oneOf` (labelled) or `enum`, or ones
- * read from a linked record for `x-choicesFrom`. Null when there are none to
- * offer — including when the linked record is not here.
- */
+/** A field's choices from `oneOf`, `enum` or a linked record's `x-choicesFrom`; null when none */
 export function choicesOf(field: Field, linked: LinkedByRel = {}): ReadonlyArray<Choice> | null {
   const { schema } = field;
   if (Array.isArray(schema.oneOf)) {
@@ -222,11 +199,7 @@ export function byRel(
   return Object.fromEntries(links.map((link, i) => [link.rel, records[i] ?? null]));
 }
 
-/**
- * Counts of the records pointing at `target` by the choice they picked —
- * "Oslo 1 · Lisbon 2" — when their collection says a field picks from a list
- * in the record they point at. Null when nothing says so.
- */
+/** "Oslo 1 · Lisbon 2": the records pointing at `target`, counted by the choice they picked */
 export function tally(
   collection: NodeCollection,
   pointing: ReadonlyArray<NodeRecord>,
@@ -248,10 +221,7 @@ export function tally(
   return { field, counts };
 }
 
-/**
- * The yes/no field a list shows as a checkbox — the first boolean, which for
- * the things people keep lists of is nearly always "done".
- */
+/** The yes/no field a list shows as a checkbox: the first boolean, nearly always "done" */
 export function checkField(schema: JsonSchema | null): Field | null {
   return fieldsOf(schema).find((f) => f.kind === 'boolean') ?? null;
 }

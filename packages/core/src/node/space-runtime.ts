@@ -20,13 +20,7 @@
  * the remover never saw it — is passed over when reading, and the version
  * before it counts again, where the store still has one.
  */
-import {
-  contactKeyPair,
-  isContactPublicKey,
-  openSealed,
-  sealFor,
-  type ContactKeyPair,
-} from '../identity/contact-key.js';
+import { contactKeyPair, isContactPublicKey, openSealed, sealFor } from '../identity/contact-key.js';
 import type { Expression, CryptoProvider, StorageAdapter } from '../types.js';
 import type { Signer } from '../schema/signer.js';
 import type { SchemaEngine } from '../schema/schema-engine.js';
@@ -138,6 +132,7 @@ import { base32Encode, cidFromBytes, cidOfDigest, hashedKey, sha256 } from '../u
 import { sameTags, tagsFor, topicKey, topicTag } from '../records/topics.js';
 import { base64UrlDecode, base64UrlEncode, utf8Decode, utf8Encode } from '../utils/encoding.js';
 import { isRecord, unref } from '../utils/guards.js';
+import { serial } from '../utils/serial.js';
 import { CLOSE_DID_TAKEN } from '../network/signaling.js';
 import type {
   CacheConfig,
@@ -150,7 +145,6 @@ import type {
   NodeRecord,
   SpaceAccess,
   SpaceProfile,
-  SpaceStatus,
 } from './types.js';
 
 /** Collections the node writes itself, through their own calls — never through `put` */
@@ -235,6 +229,10 @@ export function meshFor(network: NodeNetworkConfig | undefined, did: string): Me
   });
 }
 
+/** The relays a node was configured with that a space may name */
+export const usableRelays = (network: NodeNetworkConfig | undefined) =>
+  (network?.relays ?? []).filter((url) => checkRelays([url]) === null);
+
 /** The capability a record in a space requires */
 export const writeCapability = (spaceId: string): Capability => ({
   with: `space:${spaceId}`,
@@ -297,96 +295,8 @@ export interface SpaceRuntimeDeps {
   readonly onArrived?: (version: Expression) => void;
 }
 
-export interface SpaceRuntime {
-  list<T>(options?: ListOptions): Promise<ReadonlyArray<NodeRecord<T>>>;
-  get<T>(key: string): Promise<NodeRecord<T> | null>;
-  put<T>(
-    collection: string,
-    body: T,
-    options?: { key?: string; links?: ReadonlyArray<Link>; as?: ActiveSession },
-  ): Promise<NodeRecord<T>>;
-  update<T>(
-    key: string,
-    body: T,
-    options?: { links?: ReadonlyArray<Link>; as?: ActiveSession },
-  ): Promise<NodeRecord<T>>;
-  linked<T>(
-    key: string,
-    options?: { rel?: string; collection?: string },
-  ): Promise<ReadonlyArray<NodeRecord<T>>>;
-  remove(key: string, options?: { as?: ActiveSession }): Promise<void>;
-  history<T>(key: string): Promise<ReadonlyArray<NodeRecord<T>>>;
-  /** For the node itself: writes the next version of a record in a collection `put` refuses, like the profile */
-  upsertSystem<T>(collection: string, key: string, body: T): Promise<NodeRecord<T>>;
-  /** For the node itself: deletes a record in a managed collection */
-  removeSystem(key: string): Promise<void>;
-  /** Whether this account may create in a collection (`target` = its name), or edit or delete a record (`target` = its key) */
-  can(action: 'create' | 'edit' | 'delete', target: string): Promise<boolean>;
-  /** The name each person in the space gave, by identity */
-  profiles(): Promise<ReadonlyArray<SpaceProfile>>;
-  /** For the node itself: says who this account is, here — when that changed and the space takes its writes */
-  /** Without a contact key, the one this account's profile here already carries is kept */
-  publishProfile(profile: { name: string; contactKey?: string }): Promise<void>;
-  /** Gives a private space a new key now, sealed to every member but nobody else. Done by itself when someone is removed. */
-  rotateKey(): Promise<void>;
-  /** Each member's member key here (`sys.memberkey`), by account: who something can be sealed to */
-  memberKeys(): Promise<ReadonlyMap<string, string>>;
-  /** This account's member key pair here, to open what was sealed to it — null when this node wasn't given it */
-  ownMemberKey(): ContactKeyPair | null;
-  /** Who may read the space, for a node checking the peers that connect to it */
-  readAccess(): ReadAccess | null;
-  /** Names the relays the space's members meet on — for someone who manages it */
-  setRelays(relays: ReadonlyArray<string>): Promise<void>;
-  /** Names the nodes that keep the space whole, and how many copies to wait for — for someone who manages it */
-  setKeepers(keepers: ReadonlyArray<Keeper>, copies?: number | null): Promise<void>;
-  /** The topic tag a record with this value carries, keyed as a record written now would be */
-  topicTag(collection: string, field: string, value: string | number | boolean): Promise<string>;
-  collections(): Promise<ReadonlyArray<NodeCollection>>;
-  define(definition: DefineCollection): Promise<NodeCollection>;
-  /** Takes a definition out of the space — only once nothing is left in it */
-  undefine(name: string): Promise<void>;
-  /** Roles, members and invites as the access history says now, and this account's own role */
-  access(): Promise<SpaceAccess>;
-  /** Gives someone a role, changes it, or — with null — takes it away */
-  setMember(did: string, role: string | null): Promise<void>;
-  /** Adds or changes a role */
-  putRole(role: Role): Promise<void>;
-  /** Removes a role; whoever held it holds nothing */
-  removeRole(name: string): Promise<void>;
-  /** Opens an invite for a role. The secret goes in the link, and nowhere else. */
-  openInvite(role: string): Promise<{ readonly secret: Uint8Array; readonly key: string }>;
-  /** Closes an invite; who joined with it and was seen joining stays */
-  closeInvite(inviteDid: string): Promise<void>;
-  /** Revokes a note this account signed: nothing written under it counts from now, except what was seen */
-  revoke(token: string): Promise<void>;
-  /** Whether a note has been revoked here */
-  isRevoked(token: string): Promise<boolean>;
-  /** Every version this node keeps of these records, signed as stored, to hand on outside sync */
-  versionsOf(keys: ReadonlyArray<string>): Promise<Expression[]>;
-  /**
-   * Takes in versions handed over outside sync, through the same checks as a
-   * peer's. How many were new.
-   */
-  take(versions: ReadonlyArray<Expression>): Promise<number>;
-  /** Uses an invite's secret, once its record has arrived. True when this account is a member. */
-  join(secret: Uint8Array): Promise<boolean>;
-  /**
-   * Says these collections are in use: a node holding part of the space holds
-   * them from now on. Whether it has all of them yet — a query's `complete`.
-   */
-  use(collections: ReadonlyArray<string>): boolean;
-  /** Who is connected, as this space alone can tell — which of them are the account's own, the node works out */
-  status(): Promise<Omit<SpaceStatus, 'own' | 'carriers'>>;
-  /** A live message to the peers connected now — all of them, one account's devices, or one device */
-  send(message: unknown, to?: string): Promise<void>;
-  /**
-   * Always-on nodes to hold a socket to besides those the node was configured
-   * with: the hosts the account or the space uses. Sockets to any given
-   * before and not now are closed. Nothing without a network.
-   */
-  useNodes(nodes: ReadonlyArray<string>): void;
-  close(): Promise<void>;
-}
+/** One open space, as `openSpaceRuntime` gives it */
+export type SpaceRuntime = Awaited<ReturnType<typeof openSpaceRuntime>>;
 
 /** Which account a connected peer showed it acts for */
 interface PeerAccount {
@@ -425,6 +335,15 @@ type Standing =
       readonly withdrawn?: true;
     };
 const STANDS: Standing = { ok: true };
+const ACCESS_LATER: Standing = Object.freeze({
+  ok: false,
+  reason: 'Access changes it depends on have not arrived yet',
+  later: true,
+});
+
+/** Who a collection's rules let take an action on its records */
+const whoMay = (rules: CollectionRules, action: 'create' | 'edit' | 'delete') =>
+  action === 'create' ? rules.create : action === 'delete' ? (rules.delete ?? rules.edit) : rules.edit;
 
 /** Whether a version goes in the store: it stands, or stood until a later change withdrew it */
 const storable = (standing: Standing): boolean => standing.ok || !!standing.withdrawn;
@@ -496,7 +415,7 @@ async function loadCacheState(adapter: StorageAdapter): Promise<CacheState> {
   }
 }
 
-export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRuntime> {
+export async function openSpaceRuntime(deps: SpaceRuntimeDeps) {
   const { record, provider, signer, schemas, session, emit } = deps;
   const { space } = record;
   let closed = false;
@@ -909,40 +828,23 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
    * Whether a version stands: signed, in this space, consistent with its first
    * version, and — by the access history — written by someone allowed to.
    * The same verdict for a version from a peer, from a folder, or written
-   * here, and for one read back later.
+   * here, and for one read back later. `within`, for a version another cites:
+   * judged as of what the citing version saw, so a change that came after it
+   * can't undo a proof that held when it was made (02 §7.6).
    */
-  function standingOf(expression: Expression): Promise<Standing> {
-    const cacheKey = verdictKey(expression);
+  function standingOf(expression: Expression, within?: ReadonlyArray<string>): Promise<Standing> {
+    const cacheKey = within
+      ? `${verdictKey(expression)}|${[...new Set(within)].sort().join(',')}`
+      : verdictKey(expression);
     let found = standings.get(cacheKey);
     if (!found) {
-      found = judgeStanding(expression);
+      found = judgeStanding(expression, within);
       standings.set(cacheKey, found);
       // Only a verdict that stands is kept: one waiting on something not here
       // yet changes when it arrives, and a failing verdict is never cached (02 §9.5).
       found.then(
         (standing) => !standing.ok && standings.delete(cacheKey),
         () => standings.delete(cacheKey),
-      );
-    }
-    return found;
-  }
-
-  const citedStandings = new Map<string, Promise<Standing>>();
-
-  /**
-   * Whether a version stands for one that cites it: judged as of what the
-   * citing version saw, so a change that came after it can't undo a proof
-   * that held when it was made (02 §7.6).
-   */
-  function standingWithin(expression: Expression, within: ReadonlyArray<string>): Promise<Standing> {
-    const cacheKey = `${verdictKey(expression)}|${[...new Set(within)].sort().join(',')}`;
-    let found = citedStandings.get(cacheKey);
-    if (!found) {
-      found = judgeStanding(expression, within);
-      citedStandings.set(cacheKey, found);
-      found.then(
-        (standing) => !standing.ok && citedStandings.delete(cacheKey),
-        () => citedStandings.delete(cacheKey),
       );
     }
     return found;
@@ -966,8 +868,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       const event = await toEvent(expression);
       if (!event) return { ok: false, reason: 'It is not a well-formed change to who may do what' };
       const status = history.status(event.id);
-      if (!status || status.status === 'waiting')
-        return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
+      if (!status || status.status === 'waiting') return ACCESS_LATER;
       return status.status === 'applied' ? STANDS : { ok: false, reason: status.reason };
     }
 
@@ -983,20 +884,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
     const seen = expression.seen ?? [];
     const state = history.at(seen);
-    if (!state)
-      return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
+    if (!state) return ACCESS_LATER;
 
     const root = verdict.root;
     const found = await rulesAt(state, expression.collection);
     const rules = found?.rules;
     const action = expression.seq === 0 ? 'create' : expression.deleted ? 'delete' : 'edit';
-    const who = !rules
-      ? undefined
-      : action === 'create'
-        ? rules.create
-        : action === 'delete'
-          ? (rules.delete ?? rules.edit)
-          : rules.edit;
+    const who = rules && whoMay(rules, action);
     const creator = action !== 'create' && (await judge(first)).root === root;
     const needs = (role: Role | null) =>
       role !== null &&
@@ -1139,7 +1033,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     if (!version.retain && !version.deleted) return { refused: `it cites ${id}, which was not kept whole` };
     if (!(await consistent(version))) return { refused: `it cites ${id}, which is not its record's` };
     // As of what the citing version saw: a removal after it doesn't undo it.
-    const stands = await standingWithin(version, within);
+    const stands = await standingOf(version, within);
     if (!stands.ok)
       return stands.later ? { later: true } : { refused: `it cites ${id}, which does not stand` };
     return checkedVersion(version, true);
@@ -1201,8 +1095,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         reason: (await judge(expression)).reason ?? 'It is not a well-formed change to who may do what',
       };
     const { history } = await access();
-    if (!history.at(event.seen))
-      return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
+    if (!history.at(event.seen)) return ACCESS_LATER;
     const known =
       history.named(event.root) ||
       (event.kind === 'member' && event.viaInvite !== undefined && history.knownInvite(event.viaInvite)) ||
@@ -1588,7 +1481,6 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     memberKeysCache = null;
     accessCache = null;
     standings.clear();
-    citedStandings.clear();
     keepUp();
     // The access history may name keepers now, or none.
     void refreshHolds().catch(() => {});
@@ -1796,9 +1688,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
    * relays this node uses, so the invites and devices that follow meet there.
    */
   async function nameRelays(): Promise<void> {
-    const own = (deps.network?.relays ?? [])
-      .filter((url) => checkRelays([url]) === null)
-      .slice(0, MAX_RELAYS);
+    const own = usableRelays(deps.network).slice(0, MAX_RELAYS);
     if (own.length === 0) return;
     const { history } = await access();
     if (history.current.relays.length > 0 || !roleHolds(standing(history.current, deps.rootDid), MANAGE))
@@ -1806,25 +1696,15 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     await upsert(RELAYS_COLLECTION, SPACE_RELAYS_RECORD, { relays: own });
   }
 
-  let keysRunning: Promise<void> | null = null;
-  let keysAgain = false;
   /** Runs the upkeep once more after whatever changed — one run at a time */
-  function keepUp(): void {
+  const keepingUp = serial(async () => {
     if (closed) return;
-    if (keysRunning) {
-      keysAgain = true;
-      return;
-    }
-    keysRunning = (async () => {
-      do {
-        keysAgain = false;
-        await upkeep().catch(() => {
-          // A write refused, a peer's junk: the next change tries again.
-        });
-      } while (keysAgain && !closed);
-    })().finally(() => {
-      keysRunning = null;
+    await upkeep().catch(() => {
+      // A write refused, a peer's junk: the next change tries again.
     });
+  });
+  function keepUp(): void {
+    if (!closed) void keepingUp();
   }
 
   /** The read key each peer checked here was let in on, by session DID, and when */
@@ -2577,14 +2457,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     const found = await rulesAt(history.current, collection);
     if (!found) return true;
     if (found.rules.final && action !== 'create') return false;
-    const who =
-      action === 'create'
-        ? found.rules.create
-        : action === 'delete'
-          ? (found.rules.delete ?? found.rules.edit)
-          : found.rules.edit;
     const creator = !!first && (await judge(first)).root === deps.rootDid;
-    return allows(who, {
+    return allows(whoMay(found.rules, action), {
       member: true,
       creator,
       can: (permission) => roleHolds(role, permissionName(collection, permission)),
@@ -2658,6 +2532,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       return mayNow(current.collection, action, await genesisOf(current));
     },
 
+    /** For the node itself: writes the next version of a record in a collection `put` refuses, like the profile */
     upsertSystem: <T>(collection: string, recordKey: string, body: T) =>
       upsert<T>(collection, recordKey, body),
 
@@ -2667,6 +2542,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       );
     },
 
+    /** For the node itself: says who this account is here, when that changed and the space takes its writes */
     async publishProfile(profile: { name: string; contactKey?: string }) {
       // Someone following a space without a role in it cannot write there, and says nothing.
       if (await cannotWrite()) return;
@@ -2757,6 +2633,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       await removeKey(recordKey, options.as);
     },
 
+    /** For the node itself: deletes a record in a managed collection */
     removeSystem: removeKey,
 
     async history<T>(recordKey: string): Promise<ReadonlyArray<NodeRecord<T>>> {
@@ -2926,6 +2803,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       return (await Promise.all(keys.map((key) => storage.history(key)))).flat();
     },
 
+    /** Takes in versions handed over outside sync, through the same checks as a peer's. How many were new. */
     async take(versions: ReadonlyArray<Expression>) {
       const placed: Expression[] = [];
       // First versions before the ones that follow them.
@@ -2942,6 +2820,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       return placed.length;
     },
 
+    /** Uses an invite's secret, once its record has arrived. True when this account is a member. */
     async join(secret: Uint8Array) {
       const { history } = await access();
       if (standing(history.current, deps.rootDid)) {
@@ -2995,6 +2874,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       }
     },
 
+    /**
+     * Always-on nodes to hold a socket to besides those configured: the hosts
+     * the account or the space uses. Sockets to any given before and not now
+     * are closed.
+     */
     useNodes(nodes: ReadonlyArray<string>) {
       if (!net || closed) return;
       const configured = new Set(net.nodes ?? []);
@@ -3029,7 +2913,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       if (dropTimer) clearInterval(dropTimer);
       await tidying;
       await flushCache();
-      await keysRunning;
+      await keepingUp.done();
       await pulling;
       await Promise.all(mirrors.map((mirror) => mirror.close()));
       if (watchTimer) clearInterval(watchTimer);

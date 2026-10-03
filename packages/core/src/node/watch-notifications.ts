@@ -11,6 +11,7 @@
  */
 import { matchesRecord, whereHolds } from '../space/notify.js';
 import type { NodeRecord, NotifyView, P2PNode } from './types.js';
+import { serial } from '../utils/serial.js';
 
 /** A record one of the app's subscriptions asks about */
 export interface NotifyMatch {
@@ -42,7 +43,6 @@ export function watchNotifications(node: P2PNode, options: WatchNotificationsOpt
   const seen = new Map<string, Set<string>>();
   /** Spaces with a change not yet looked at; null means the subscriptions or spaces changed */
   const dirty = new Set<string | null>([null]);
-  let running: Promise<void> | null = null;
 
   const collectionsIn = (space: string) =>
     new Set(
@@ -79,36 +79,29 @@ export function watchNotifications(node: P2PNode, options: WatchNotificationsOpt
       for (const collection of collectionsIn(space)) await look(space, collection, true);
   }
 
-  async function run(): Promise<void> {
-    while (dirty.size && !stopped) {
-      const changed = [...dirty];
-      dirty.clear();
-      try {
-        if (changed.includes(null)) await reload();
-        for (const space of changed) {
-          if (space === null || !spaces.has(space)) continue;
-          for (const collection of collectionsIn(space)) await look(space, collection, false);
-        }
-      } catch (error) {
-        options.onError?.(error);
+  // One look at a time; asked meanwhile, it looks once more after.
+  const kick = serial(async () => {
+    if (stopped) return;
+    const changed = [...dirty];
+    dirty.clear();
+    try {
+      if (changed.includes(null)) await reload();
+      for (const space of changed) {
+        if (space === null || !spaces.has(space)) continue;
+        for (const collection of collectionsIn(space)) await look(space, collection, false);
       }
+    } catch (error) {
+      options.onError?.(error);
     }
-  }
-
-  function kick(): void {
-    running ??= run().finally(() => {
-      running = null;
-      if (dirty.size && !stopped) kick();
-    });
-  }
+  });
 
   const unsubscribe = node.subscribe((event) => {
     if (event.type === 'spaces' || event.type === 'account') dirty.add(null);
     else if (event.type === 'records') dirty.add(spaces.has(event.space) ? event.space : null);
     else return;
-    kick();
+    void kick();
   });
-  kick();
+  void kick();
 
   return () => {
     stopped = true;

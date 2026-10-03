@@ -15,17 +15,15 @@ import {
   placeFields,
   point,
   text,
-  typed,
+  define,
   url,
   when,
   words,
-  type BlobRef,
-  type ImageRef,
-  type Place,
 } from '../fragments.js';
+import type { BodyOf } from '../../query/types.js';
 
 /** A place worth remembering: a café, a campsite, a friend's house. */
-export const place = typed<PlaceEntry>()({
+export const place = define({
   name: 'std.place',
   title: 'Place',
   description: 'A place: a name, an address, a point on the map.',
@@ -35,14 +33,10 @@ export const place = typed<PlaceEntry>()({
     required: ['name'],
   },
 });
-export interface PlaceEntry extends Place {
-  readonly name: string;
-  readonly category?: string;
-  readonly url?: string;
-}
+export type PlaceEntry = BodyOf<typeof place>;
 
 /** Having been somewhere. */
-export const visit = typed<Visit>()({
+export const visit = define({
   name: 'std.visit',
   title: 'Visit',
   description: 'Someone having been at a place.',
@@ -54,13 +48,10 @@ export const visit = typed<Visit>()({
   links: { about: one(['std.place'], 'The place') },
   rules: own,
 });
-export interface Visit {
-  readonly at: string;
-  readonly note?: string;
-}
+export type Visit = BodyOf<typeof visit>;
 
 /** A trip; its events, bookings and places link `in` it. */
-export const trip = typed<Trip>()({
+export const trip = define({
   name: 'std.trip',
   title: 'Trip',
   description: 'A trip, with dates.',
@@ -70,15 +61,10 @@ export const trip = typed<Trip>()({
     required: ['title'],
   },
 });
-export interface Trip {
-  readonly title: string;
-  readonly start?: string;
-  readonly end?: string;
-  readonly note?: string;
-}
+export type Trip = BodyOf<typeof trip>;
 
 /** Where someone is now, shared live: one per person, overwritten as they move. */
-export const location = typed<Location>()({
+export const location = define({
   name: 'std.location',
   title: 'Location',
   description: 'Where someone is now: one per person.',
@@ -93,15 +79,10 @@ export const location = typed<Location>()({
   },
   rules: { ...own, onePer: ['@author'] },
 });
-export interface Location {
-  readonly lat: number;
-  readonly lon: number;
-  readonly accuracy?: number;
-  readonly at: string;
-}
+export type Location = BodyOf<typeof location>;
 
 /** A recipe, after schema.org's. */
-export const recipe = typed<Recipe>()({
+export const recipe = define({
   name: 'std.recipe',
   title: 'Recipe',
   description: 'A recipe: ingredients and steps.',
@@ -133,26 +114,12 @@ export const recipe = typed<Recipe>()({
     required: ['title'],
   },
 });
-export interface Recipe {
-  readonly title: string;
-  readonly description?: string;
-  readonly ingredients?: ReadonlyArray<{
-    readonly text: string;
-    readonly quantity?: number;
-    readonly unit?: string;
-  }>;
-  readonly steps?: ReadonlyArray<string>;
-  readonly servings?: number;
-  readonly prepMinutes?: number;
-  readonly cookMinutes?: number;
-  readonly image?: ImageRef;
-  readonly source?: string;
-}
+export type Recipe = BodyOf<typeof recipe>;
 
 const MEALS = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
 
 /** A meal on the plan: one per day per meal, and anyone may change it. */
-export const meal = typed<Meal>()({
+export const meal = define({
   name: 'std.meal',
   title: 'Meal',
   description: 'A planned meal: one per day per meal.',
@@ -164,14 +131,10 @@ export const meal = typed<Meal>()({
   links: { about: one(['std.recipe'], 'The recipe') },
   rules: { onePer: ['date', 'meal'] },
 });
-export interface Meal {
-  readonly date: string;
-  readonly meal: (typeof MEALS)[number];
-  readonly note?: string;
-}
+export type Meal = BodyOf<typeof meal>;
 
 /** A day's journal entry: one per person per day. */
-export const journalEntry = typed<JournalEntry>()({
+export const journalEntry = define({
   name: 'std.journal-entry',
   title: 'Journal entry',
   description: 'What someone wrote about a day: one entry per day.',
@@ -182,14 +145,10 @@ export const journalEntry = typed<JournalEntry>()({
   },
   rules: { ...own, onePer: ['@author', 'date'] },
 });
-export interface JournalEntry {
-  readonly date: string;
-  readonly content?: string;
-  readonly mood?: string;
-}
+export type JournalEntry = BodyOf<typeof journalEntry>;
 
 /** A measurement at a moment: a weight, a blood pressure, a meter reading. */
-export const measurement = typed<Measurement>()({
+export const measurement = define({
   name: 'std.measurement',
   title: 'Measurement',
   description: 'Something measured at a moment: a kind, a value, a unit.',
@@ -206,16 +165,10 @@ export const measurement = typed<Measurement>()({
   },
   rules: own,
 });
-export interface Measurement {
-  readonly kind: string;
-  readonly value: number;
-  readonly unit: string;
-  readonly at: string;
-  readonly note?: string;
-}
+export type Measurement = BodyOf<typeof measurement>;
 
 /** A workout: a run, a ride, a session at the gym. */
-export const workout = typed<Workout>()({
+export const workout = define({
   name: 'std.workout',
   title: 'Workout',
   description: 'A run, a ride, a session: when, how long, how far.',
@@ -233,19 +186,12 @@ export const workout = typed<Workout>()({
   },
   rules: own,
 });
-export interface Workout {
-  readonly type: string;
-  readonly start: string;
-  readonly duration?: number;
-  readonly distance?: number;
-  readonly route?: BlobRef;
-  readonly note?: string;
-}
+export type Workout = BodyOf<typeof workout>;
 
 const WORK_KINDS = ['book', 'film', 'show', 'album', 'game', 'podcast', 'other'] as const;
 
 /** A book, film, show, album or game, known by its ids. Progress is `about` it. */
-export const work = typed<Work>()({
+export const work = define({
   name: 'std.work',
   title: 'Work',
   description: 'A book, film, show, album or game.',
@@ -270,22 +216,10 @@ export const work = typed<Work>()({
     required: ['kind', 'title'],
   },
 });
-export interface Work {
-  readonly kind: (typeof WORK_KINDS)[number];
-  readonly title: string;
-  readonly creators?: ReadonlyArray<string>;
-  readonly year?: number;
-  readonly ids?: {
-    readonly isbn?: string;
-    readonly imdb?: string;
-    readonly mbid?: string;
-    readonly wikidata?: string;
-  };
-  readonly cover?: BlobRef;
-}
+export type Work = BodyOf<typeof work>;
 
 /** Where someone is with a work: want to, reading, finished. One per person per work. */
-export const progress = typed<Progress>()({
+export const progress = define({
   name: 'std.progress',
   title: 'Progress',
   description: 'Where someone is with a book, film or game: one per person.',
@@ -302,9 +236,10 @@ export const progress = typed<Progress>()({
   links: { about: one(['std.work'], 'The work') },
   rules: { ...own, onePer: ['@author', 'link:about'] },
 });
-export interface Progress {
-  readonly status: 'want' | 'doing' | 'done' | 'dropped';
-  readonly percent?: number;
-  readonly finishedAt?: string;
-  readonly note?: string;
-}
+export type Progress = BodyOf<typeof progress>;
+
+/** This file's part of `standardGroups` */
+export const lifeGroups = {
+  'Places and travel': [place, visit, trip, location],
+  'Home and life': [recipe, meal, journalEntry, measurement, workout, work, progress],
+};

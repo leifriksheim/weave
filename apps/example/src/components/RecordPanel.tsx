@@ -18,7 +18,7 @@ import {
   type Field,
   type LinkedByRel,
 } from '../derive/schema-ui';
-import { peopleFrom, writerOf } from '../derive/people';
+import { nameOf, peopleFrom, writerOf } from '../derive/people';
 import { ago } from '../derive/time';
 import { SchemaForm, FieldInput } from './SchemaForm';
 import { Value } from './Value';
@@ -27,39 +27,37 @@ import { Reactions } from './std/Reactions';
 import { Tags } from './std/Tags';
 import { Comments } from './std/Comments';
 import { LinkPicker } from './LinkPicker';
-import { styles, palette } from '../styles';
+import { styles, palette, ui } from '../styles';
+import { useAction } from '@weave/app-shared/action';
 import { Person } from './Person';
 import { useDraft } from './useDraft';
 
-/**
- * The standard schemas this app gives a place of their own on every record —
- * once a space has added them — so they are not also offered as "+ Add …"
- * here. They are still ordinary collections, listed like any other.
- */
+/** Standard collections with a place of their own on every record, so not offered as "+ Add …" */
 const ANNOTATIONS = new Set<string>([reaction.name, comment.name, tag.name]);
 
-/**
- * One record, in a panel beside the list it came from: its title, its fields
- * as properties you edit in place, reactions and tags, what it points at and
- * what points at it, and its comments. Works for any collection — the fields
- * come from the schema, the rest from links.
- */
+/** One record in a side panel: fields edited in place, its links both ways, reactions, tags and comments. */
 export function RecordPanel({
   space,
   recordKey,
   collections,
   onOpen,
   onClose,
+  onWriter,
+  scrim = true,
 }: {
   space: SpaceSummary;
   recordKey: string;
   collections: ReadonlyArray<NodeCollection>;
   onOpen: (record: NodeRecord) => void;
   onClose: () => void;
+  /** Steps to whoever wrote it, like Explore does; without it their name opens their card */
+  onWriter?: (did: string) => void;
+  /** Dims what is behind; off where that should stay usable, like Explore's map */
+  scrim?: boolean;
 }) {
   const node = useNode();
   const [adding, setAdding] = useState<{ collection: NodeCollection; rel: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { run, error } = useAction();
   const [linking, setLinking] = useState<string | null>(null);
 
   useEffect(() => {
@@ -113,15 +111,10 @@ export function RecordPanel({
   /** Writes one field: the next version of the record, everything else unchanged */
   const save = async (name: string, value: unknown) => {
     if (!record) return;
-    setError(null);
     const next = { ...body };
     if (value === undefined || value === '') delete next[name];
     else next[name] = value;
-    try {
-      await node.records.update(space.id, record.key, next);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+    await run(() => node.records.update(space.id, record.key, next));
   };
 
   const linked = data?.linked ?? [];
@@ -138,19 +131,16 @@ export function RecordPanel({
   /** Takes one link off this record: its next version, pointing at one thing less */
   const unlink = async (index: number) => {
     if (!record) return;
-    setError(null);
-    try {
-      await node.records.update(space.id, record.key, record.body, {
+    await run(() =>
+      node.records.update(space.id, record.key, record.body, {
         links: record.links.filter((_, i) => i !== index),
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+      }),
+    );
   };
 
   return (
     <>
-      <div onClick={onClose} style={scrim} aria-hidden />
+      {scrim && <div onClick={onClose} style={scrimStyle} aria-hidden />}
       <aside role="dialog" aria-label={record ? recordLabel(record, schema) : 'Record'} style={panel}>
         <header
           style={{
@@ -205,7 +195,18 @@ export function RecordPanel({
               >
                 <Avatar did={record.createdBy ?? record.root ?? record.author} size={20} />
                 <span>
-                  <Person did={record.createdBy ?? record.root} />
+                  {onWriter ? (
+                    <button
+                      type="button"
+                      data-variant="quiet"
+                      onClick={() => onWriter(record.createdBy ?? record.root ?? record.author)}
+                      style={{ padding: 0, font: 'inherit', color: palette.ink.body, fontWeight: 500 }}
+                    >
+                      {nameOf(record.createdBy ?? record.root, people)}
+                    </button>
+                  ) : (
+                    <Person did={record.createdBy ?? record.root} />
+                  )}
                   {record.viaAgent && record.seq === 0 && ' via agent'}
                 </span>
                 <span>· {ago(record.createdAt)}</span>
@@ -387,17 +388,7 @@ export function RecordPanel({
                     {records.map((r) => (
                       <button key={r.key} data-row onClick={() => onOpen(r)} style={miniRow}>
                         <Avatar did={r.root ?? r.author} size={18} />
-                        <span
-                          style={{
-                            flex: 1,
-                            minWidth: 0,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {labelFor(r)}
-                        </span>
+                        <span style={{ ...ui.ellipsis, flex: 1, minWidth: 0 }}>{labelFor(r)}</span>
                         <span style={{ color: palette.ink.faint, fontSize: 12 }}>
                           {writerOf(r, people)} · {ago(r.createdAt)}
                         </span>
@@ -513,11 +504,7 @@ function Property({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/**
- * A field shown as its value, edited where it stands: yes/no and choices
- * save as soon as they change; text and numbers when you press Enter or click
- * away. Lists, objects and JSON get the form's editor and a Save.
- */
+/** A field edited where it stands: choices save at once, text on Enter or blur, the rest with a Save. */
 function FieldEditor({
   field,
   value,
@@ -674,7 +661,7 @@ function groupBy<T>(items: ReadonlyArray<T>, key: (item: T) => string): Map<stri
   return groups;
 }
 
-const scrim = {
+const scrimStyle = {
   position: 'fixed' as const,
   inset: 0,
   background: 'rgba(0,0,0,.18)',

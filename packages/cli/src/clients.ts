@@ -10,7 +10,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { errorCode, isRecord } from './json.js';
+import { errorCode, isRecord, messageOf } from './json.js';
 
 const run = promisify(execFile);
 
@@ -97,7 +97,7 @@ export async function configureClients(server: ServerCommand): Promise<ReadonlyA
     if (errorCode(error) !== 'ENOENT') {
       done.push({
         client: 'Claude Code',
-        result: `could not add it: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`,
+        result: `could not add it: ${messageOf(error).split('\n')[0]}`,
         ok: false,
       });
     }

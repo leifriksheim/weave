@@ -1,5 +1,4 @@
 /**
- * @module storage/mirror
  * A space kept in a dumb file store, synced like a peer that never runs code.
  *
  * ```
@@ -123,33 +122,39 @@ export async function createMirror(config: MirrorConfig): Promise<Mirror> {
     return name;
   }
 
-  /** Every version this store keeps: whole if current or retained, as a stub otherwise */
-  async function held(): Promise<string[]> {
-    return storage.versionIds();
-  }
-
-  async function flushNow(): Promise<void> {
-    const waiting: Expression[] = [];
-    for (const id of await held()) {
-      if (await isKnown(id)) continue;
-      const version = await storage.getExpression(id);
-      if (version) waiting.push(version);
-    }
+  /** Writes versions in segments of about `flushBytes`, telling `written` each one */
+  async function writeSegments(
+    versions: Iterable<Expression>,
+    written: (batch: ReadonlyArray<Expression>) => Promise<void> = async () => {},
+  ): Promise<void> {
     let batch: Expression[] = [];
     let size = 0;
     const send = async () => {
       if (batch.length === 0) return;
       await writeSegment(batch);
-      for (const version of batch) await markKnown(version.id);
+      await written(batch);
       batch = [];
       size = 0;
     };
-    for (const version of waiting) {
+    for (const version of versions) {
       batch.push(version);
       size += versionSize(version);
       if (size >= flushBytes) await send();
     }
     await send();
+  }
+
+  async function flushNow(): Promise<void> {
+    // Every version this store keeps: whole if current or retained, as a stub otherwise.
+    const waiting: Expression[] = [];
+    for (const id of await storage.versionIds()) {
+      if (await isKnown(id)) continue;
+      const version = await storage.getExpression(id);
+      if (version) waiting.push(version);
+    }
+    await writeSegments(waiting, async (batch) => {
+      for (const version of batch) await markKnown(version.id);
+    });
     if ((await store.list(mine)).filter((key) => key.endsWith(SEGMENT_SUFFIX)).length >= compactAt)
       await compactNow();
   }
@@ -157,7 +162,7 @@ export async function createMirror(config: MirrorConfig): Promise<Mirror> {
   async function compactNow(): Promise<void> {
     const old = (await store.list(mine)).filter((key) => key.endsWith(SEGMENT_SUFFIX));
     if (old.length < 2) return;
-    const wanted = new Set(await held());
+    const wanted = new Set(await storage.versionIds());
     const keep = new Map<string, Expression>();
     for (const key of old) {
       const bytes = await store.get(key);
@@ -168,18 +173,7 @@ export async function createMirror(config: MirrorConfig): Promise<Mirror> {
           keep.set(version.id, (await storage.getExpression(version.id)) ?? version);
     }
     // New first, then delete: a reader in between sees each version twice, which is harmless.
-    let batch: Expression[] = [];
-    let size = 0;
-    for (const version of keep.values()) {
-      batch.push(version);
-      size += versionSize(version);
-      if (size >= flushBytes) {
-        await writeSegment(batch);
-        batch = [];
-        size = 0;
-      }
-    }
-    if (batch.length) await writeSegment(batch);
+    await writeSegments(keep.values());
     for (const key of old) await store.delete(key);
   }
 

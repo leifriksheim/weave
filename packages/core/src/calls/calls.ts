@@ -1,5 +1,4 @@
 /**
- * @module calls
  * Voice and video calls between the people in a space.
  *
  * Nothing here is new to the protocol. A call is live messages

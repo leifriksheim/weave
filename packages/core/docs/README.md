@@ -72,3 +72,20 @@ the others wrote.
   what syncs.
 - A refused write throws with the reason in plain words. Show it, or check
   first with `node.records.can` and hide the button.
+
+## Planned in the library
+
+What the protocol still has planned is in [the spec](https://github.com/leifriksheim/weave/blob/main/spec/README.md),
+under **Planned** in each part. Library work that isn't protocol:
+
+- **Typed queries, further.** Typed field paths and operator values in
+  `where`, a misspelled collection name as a compile error, typed link roles,
+  types generated from a space's stored definitions, and a dev-time warning
+  when declared schemas differ from the space's catalogue.
+- **Typed collections.** One TypeScript builder that emits the schema, the
+  rules and the types, and typed handles (`node.use(space, Poll)`).
+- **Definitions that update themselves.** `useSchemas` and `addApp` applying
+  harmless changes, with `differences()` in `packages/core/src/schemas/apps.ts`
+  replaced by the planned `compare` ([02](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md),
+  compatible definitions).
+- **Web components** for the standard schemas.
